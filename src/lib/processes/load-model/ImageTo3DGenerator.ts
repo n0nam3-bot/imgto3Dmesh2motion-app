@@ -23,6 +23,8 @@ import { Client } from '@gradio/client'
 export class ImageTo3DGenerator {
   private space_id: string = 'tencent/Hunyuan3D-2'
   private api_name: string = '/generation_all'
+  private fallback_api_name: string = '/shape_generation'
+  private hf_token: string | undefined
 
   private on_progress: (status: string) => void = () => {}
 
@@ -38,22 +40,62 @@ export class ImageTo3DGenerator {
   }
 
   /**
+   * Optional Hugging Face access token (from huggingface.co/settings/tokens).
+   * Authenticated requests get a much larger free ZeroGPU quota than
+   * anonymous ones.
+   */
+  public set_hf_token (token: string | undefined): void {
+    this.hf_token = (token !== undefined && token.trim().length > 0) ? token.trim() : undefined
+  }
+
+  /**
    * Sends an image file to the configured Hugging Face Space and resolves
    * with a blob: URL pointing to the generated GLB file, ready to be
    * passed straight into StepLoadModel.load_model_file(url, 'glb').
+   *
+   * If the textured endpoint fails specifically due to a ZeroGPU quota
+   * error, this automatically retries once against the lighter/faster
+   * untextured endpoint rather than failing outright.
    */
   public async generate_from_image (image_file: File): Promise<string> {
     this.on_progress('Connecting to generation service…')
-    const client = await Client.connect(this.space_id)
+    const connect_options = this.hf_token !== undefined ? { token: this.hf_token as `hf_${string}` } : undefined
+    const client = await Client.connect(this.space_id, connect_options)
 
-    this.on_progress('Uploading image and generating textured 3D model… free queues can take 1-3min')
+    try {
+      return await this.run_generation(client, image_file, this.api_name)
+    } catch (error: unknown) {
+      const message = this.describe_unknown_error(error)
+      const is_quota_error = /quota/i.test(message)
 
-    // positional args match shape_generation()'s signature in gradio_app.py:
+      if (is_quota_error && this.api_name !== this.fallback_api_name) {
+        this.on_progress(
+          'Free textured-generation quota exceeded - falling back to the faster untextured version…'
+        )
+        return await this.run_generation(client, image_file, this.fallback_api_name)
+      }
+
+      throw new Error(message)
+    }
+  }
+
+  private async run_generation (
+    client: Awaited<ReturnType<typeof Client.connect>>,
+    image_file: File,
+    api_name: string
+  ): Promise<string> {
+    this.on_progress(
+      api_name === this.fallback_api_name
+        ? 'Uploading image and generating 3D model… free queues can take 30s-2min'
+        : 'Uploading image and generating textured 3D model… free queues can take 1-3min'
+    )
+
+    // positional args match shape_generation()'s / generation_all()'s signature in gradio_app.py:
     // (caption, image, mv_image_front, mv_image_back, mv_image_left, mv_image_right,
     //  steps, guidance_scale, seed, octree_resolution, check_box_rembg, num_chunks, randomize_seed)
     let result: Awaited<ReturnType<typeof client.predict>>
     try {
-      result = await client.predict(this.api_name, [
+      result = await client.predict(api_name, [
         null, // caption - unused, we're doing image mode
         image_file, // image
         null, null, null, null, // multi-view images - unused
