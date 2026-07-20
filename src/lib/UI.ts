@@ -7,6 +7,11 @@ export class UI {
   dom_load_model_button: HTMLButtonElement | null = null
   dom_load_model_debug_checkbox: HTMLInputElement | null = null
 
+  // UI controls for generating a model from a 2D image
+  dom_generate_from_image_input: HTMLInputElement | null = null
+  dom_generate_from_image_button: HTMLButtonElement | null = null
+  dom_generate_from_image_status: HTMLElement | null = null
+
   // toggle for showing/hiding skeleton in the 3D view
   dom_show_skeleton_container: HTMLElement | null = null
   dom_show_skeleton_checkbox: HTMLInputElement | null = null
@@ -133,6 +138,11 @@ export class UI {
     this.dom_upload_model_button = document.querySelector('#model-upload')
     this.dom_load_model_button = document.querySelector('#load-model-button')
     this.dom_load_model_debug_checkbox = document.querySelector('#load-model-debug-checkbox')
+
+    // UI controls for generating a model from a 2D image
+    this.dom_generate_from_image_input = document.querySelector('#generate-from-image-input')
+    this.dom_generate_from_image_button = document.querySelector('#generate-from-image-button')
+    this.dom_generate_from_image_status = document.querySelector('#generate-from-image-status')
 
     // UI controls with load skeleton step
     this.dom_rotate_model_x_button = document.querySelector('#rotate-model-x-button')
