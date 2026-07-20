@@ -107,7 +107,12 @@ export class ImageTo3DGenerator {
       }
 
       if (item !== null && typeof item === 'object') {
-        const candidate = item as { url?: string, path?: string }
+        // gr.update(value=...) wraps the real file data under `.value`
+        const unwrapped = ('value' in item && item.value !== null && typeof item.value === 'object')
+          ? item.value
+          : item
+
+        const candidate = unwrapped as { url?: string, path?: string }
         const url = candidate.url ?? candidate.path
         if (typeof url === 'string' && url.toLowerCase().endsWith('.glb')) {
           return url
