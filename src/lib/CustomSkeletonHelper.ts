@@ -24,7 +24,7 @@ const bone_category_colors: Record<BoneCategory, number> = {
 
 class CustomSkeletonHelper extends LineSegments {
   private readonly joint_points: Points
-  private readonly jointTexture = new TextureLoader().load('/images/skeleton-joint-point.png')
+  private readonly jointTexture = new TextureLoader().load(`${import.meta.env.BASE_URL}images/skeleton-joint-point.png`)
   private hide_right_side_joints: boolean = false
 
   constructor (object: any, options: CustomSkeletonHelperOptions = {}) {
