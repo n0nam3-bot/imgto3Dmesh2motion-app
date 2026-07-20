@@ -90,6 +90,21 @@
               accept="image/png, image/jpeg, image/webp"
             />
             <p id="generate-from-image-filename" style="margin: 0.25rem 0 0; font-size: 0.85rem; opacity: 0.8;">No image chosen</p>
+            <details style="margin: 0.5rem 0 0;">
+              <summary style="font-size: 0.8rem; cursor: pointer; opacity: 0.8;">Optional: Hugging Face token (more free generations)</summary>
+              <input
+                id="generate-from-image-hf-token"
+                type="password"
+                placeholder="hf_..."
+                autocomplete="off"
+                style="width: 100%; margin-top: 0.35rem; box-sizing: border-box;"
+              />
+              <p style="margin: 0.25rem 0 0; font-size: 0.7rem; opacity: 0.6;">
+                Free Hugging Face accounts get much more generation quota than
+                anonymous use. Create a token at huggingface.co/settings/tokens
+                (read access is enough). Saved only in this browser.
+              </p>
+            </details>
             <button id="generate-from-image-button">Generate 3D Model</button>
             <p id="generate-from-image-status" style="margin: 0.25rem 0 0; font-size: 0.85rem; opacity: 0.8;"></p>
             <p style="margin: 0.25rem 0 0; font-size: 0.75rem; opacity: 0.6;">
