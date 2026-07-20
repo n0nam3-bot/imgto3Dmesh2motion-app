@@ -24,7 +24,7 @@ export class DOMUtilities {
   static readonly top_nav_links: TopNavLinksConfig = {
     support_href: 'https://support.mesh2motion.org',
     github_href: 'https://github.com/scottpetrovic/mesh2motion-app',
-    github_icon_src: '../images/github-white-icon.png'
+    github_icon_src: `${import.meta.env.BASE_URL}images/github-white-icon.png`
   }
 
   static readonly settings_defaults: SettingsDefaultsConfig = {
@@ -72,17 +72,17 @@ export class DOMUtilities {
     mount.innerHTML = `
       <div id="header-ui">
         <div>
-          <img class="nav-icon" src="/images/mouse-left.svg" style="vertical-align: middle" />
+          <img class="nav-icon" src="${import.meta.env.BASE_URL}images/mouse-left.svg" style="vertical-align: middle" />
           Rotate
         </div>
 
         <div>
-          <img class="nav-icon" src="/images/mouse-right.svg" style="vertical-align: middle" />
+          <img class="nav-icon" src="${import.meta.env.BASE_URL}images/mouse-right.svg" style="vertical-align: middle" />
           Pan
         </div>
 
         <div>
-          <img class="nav-icon" src="/images/mouse-middle.svg" style="vertical-align: middle" />
+          <img class="nav-icon" src="${import.meta.env.BASE_URL}images/mouse-middle.svg" style="vertical-align: middle" />
           Zoom
         </div>
       </div>
@@ -101,7 +101,7 @@ export class DOMUtilities {
 
         <div id="play-controls">
           <button id="play-pause-button" class="animation-control-button" disabled>
-             <img src="../images/icons/play.svg" alt="Play" width="14" height="14" />
+             <img src="${import.meta.env.BASE_URL}images/icons/play.svg" alt="Play" width="14" height="14" />
           </button>
 
           <span>
@@ -114,7 +114,7 @@ export class DOMUtilities {
           <div id="skeleton-toggle" class="styled-checkbox icon-toggle">
             <input type="checkbox" id="show-skeleton-checkbox" name="show-skeleton" value="show" style="display: none" />
             <label for="show-skeleton-checkbox" data-tippy-content="Show skeleton" tabindex="0" style="border-radius: 0">
-              <img src="../images/icons/bone-display.svg" class="action-icon" alt="Show skeleton" style="user-select: none" />
+              <img src="${import.meta.env.BASE_URL}images/icons/bone-display.svg" class="action-icon" alt="Show skeleton" style="user-select: none" />
             </label>
           </div>
         </div>
@@ -136,7 +136,7 @@ export class DOMUtilities {
       <div id="settings-dropdown-container" class="nav-dropdown">
         <button id="settings-toggle" class="nav-icon-button" aria-expanded="false" aria-controls="settings-dropdown-content" aria-haspopup="true" aria-label="Open settings">
           
-        <img src="/images/icons/settings.svg" alt="Settings" width="30" height="30" />
+        <img src="${import.meta.env.BASE_URL}images/icons/settings.svg" alt="Settings" width="30" height="30" />
         
         </button>
 
