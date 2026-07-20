@@ -51,18 +51,23 @@ export class ImageTo3DGenerator {
     // positional args match shape_generation()'s signature in gradio_app.py:
     // (caption, image, mv_image_front, mv_image_back, mv_image_left, mv_image_right,
     //  steps, guidance_scale, seed, octree_resolution, check_box_rembg, num_chunks, randomize_seed)
-    const result = await client.predict(this.api_name, [
-      null, // caption - unused, we're doing image mode
-      image_file, // image
-      null, null, null, null, // multi-view images - unused
-      30, // steps
-      5.0, // guidance_scale
-      Math.floor(Math.random() * 1e7), // seed
-      384, // octree_resolution - bumped up from 256 for finer mesh detail
-      true, // check_box_rembg - auto remove background, important for clean results
-      8000, // num_chunks
-      true // randomize_seed
-    ])
+    let result: Awaited<ReturnType<typeof client.predict>>
+    try {
+      result = await client.predict(this.api_name, [
+        null, // caption - unused, we're doing image mode
+        image_file, // image
+        null, null, null, null, // multi-view images - unused
+        30, // steps
+        5.0, // guidance_scale
+        Math.floor(Math.random() * 1e7), // seed
+        384, // octree_resolution - bumped up from 256 for finer mesh detail
+        true, // check_box_rembg - auto remove background, important for clean results
+        8000, // num_chunks
+        true // randomize_seed
+      ])
+    } catch (predict_error: unknown) {
+      throw new Error(this.describe_unknown_error(predict_error))
+    }
 
     const glb_path = this.extract_glb_url(result.data)
 
@@ -88,6 +93,39 @@ export class ImageTo3DGenerator {
     const glb_blob = await glb_response.blob()
 
     return URL.createObjectURL(glb_blob)
+  }
+
+  /**
+   * client.predict() can throw a plain Error, but Gradio's queue/status
+   * errors (quota exceeded, GPU timeout, etc) often come through as a
+   * plain object instead - which String(error) turns into a useless
+   * "[object Object]". This pulls out whatever readable info exists.
+   */
+  private describe_unknown_error (error: unknown): string {
+    if (error instanceof Error) {
+      return error.message
+    }
+
+    if (typeof error === 'string') {
+      return error
+    }
+
+    if (error !== null && typeof error === 'object') {
+      const candidate = error as { message?: string, detail?: string, error?: string, stage?: string, type?: string }
+      const readable = candidate.message ?? candidate.detail ?? candidate.error
+      if (typeof readable === 'string') {
+        const context = candidate.stage !== undefined ? ` (stage: ${candidate.stage})` : ''
+        return `${readable}${context}`
+      }
+
+      try {
+        return `Unrecognized error object: ${JSON.stringify(error, null, 2).slice(0, 500)}`
+      } catch {
+        return 'Unrecognized error object that could not be serialized.'
+      }
+    }
+
+    return String(error)
   }
 
   /**
