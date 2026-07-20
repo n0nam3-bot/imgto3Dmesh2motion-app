@@ -66,10 +66,10 @@ export class ImageTo3DGenerator {
     const glb_path = this.extract_glb_url(result.data)
 
     if (glb_path === null) {
+      const raw_preview = JSON.stringify(result.data, null, 2).slice(0, 500)
       throw new Error(
-        'No GLB file found in the generation response. The Space may have ' +
-        'changed its API - check gradio_app.py on the Space page and update ' +
-        'ImageTo3DGenerator accordingly.'
+        'No GLB file found in the generation response. Raw response ' +
+        `(screenshot this and send it back): ${raw_preview}`
       )
     }
 
