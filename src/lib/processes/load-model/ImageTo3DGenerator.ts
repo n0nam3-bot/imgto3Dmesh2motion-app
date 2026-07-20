@@ -63,15 +63,21 @@ export class ImageTo3DGenerator {
       true // randomize_seed
     ])
 
-    const glb_url = this.extract_glb_url(result.data)
+    const glb_path = this.extract_glb_url(result.data)
 
-    if (glb_url === null) {
+    if (glb_path === null) {
       throw new Error(
         'No GLB file found in the generation response. The Space may have ' +
         'changed its API - check gradio_app.py on the Space page and update ' +
         'ImageTo3DGenerator accordingly.'
       )
     }
+
+    // some Gradio versions return a full https URL, others a path relative
+    // to the Space's own server - resolve against the Space origin if needed
+    const client_config = (client as unknown as { config?: { root?: string } }).config
+    const space_root = client_config?.root ?? ''
+    const glb_url = glb_path.startsWith('http') ? glb_path : `${space_root}${glb_path}`
 
     this.on_progress('Downloading generated model…')
     const glb_response = await fetch(glb_url)
@@ -84,9 +90,11 @@ export class ImageTo3DGenerator {
   }
 
   /**
-   * Gradio endpoints return an array of outputs. File-type outputs come
-   * back as objects with a `url` (or `path`) property. This walks the
-   * response looking for something that looks like a GLB.
+   * Gradio endpoints return an array of outputs. File-type outputs
+   * usually come back as objects with a `url` (or `path`) property, but
+   * depending on the Space's Gradio version can also come back as a
+   * plain string path/URL. This walks the response looking for
+   * anything that looks like a GLB, in either shape.
    */
   private extract_glb_url (data: unknown): string | null {
     if (!Array.isArray(data)) {
@@ -94,6 +102,10 @@ export class ImageTo3DGenerator {
     }
 
     for (const item of data) {
+      if (typeof item === 'string' && item.toLowerCase().endsWith('.glb')) {
+        return item
+      }
+
       if (item !== null && typeof item === 'object') {
         const candidate = item as { url?: string, path?: string }
         const url = candidate.url ?? candidate.path
