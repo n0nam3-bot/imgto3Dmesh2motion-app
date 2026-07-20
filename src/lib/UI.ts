@@ -11,6 +11,7 @@ export class UI {
   dom_generate_from_image_input: HTMLInputElement | null = null
   dom_generate_from_image_button: HTMLButtonElement | null = null
   dom_generate_from_image_status: HTMLElement | null = null
+  dom_generate_from_image_filename: HTMLElement | null = null
 
   // toggle for showing/hiding skeleton in the 3D view
   dom_show_skeleton_container: HTMLElement | null = null
@@ -143,6 +144,7 @@ export class UI {
     this.dom_generate_from_image_input = document.querySelector('#generate-from-image-input')
     this.dom_generate_from_image_button = document.querySelector('#generate-from-image-button')
     this.dom_generate_from_image_status = document.querySelector('#generate-from-image-status')
+    this.dom_generate_from_image_filename = document.querySelector('#generate-from-image-filename')
 
     // UI controls with load skeleton step
     this.dom_rotate_model_x_button = document.querySelector('#rotate-model-x-button')
