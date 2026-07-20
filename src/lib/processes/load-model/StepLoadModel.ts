@@ -185,6 +185,24 @@ export class StepLoadModel extends EventTarget {
       }
     }
 
+    const HF_TOKEN_STORAGE_KEY = 'mesh2motion_hf_token'
+
+    if (this.ui.dom_generate_from_image_hf_token !== null) {
+      const saved_token = window.localStorage.getItem(HF_TOKEN_STORAGE_KEY)
+      if (saved_token !== null) {
+        this.ui.dom_generate_from_image_hf_token.value = saved_token
+      }
+
+      this.ui.dom_generate_from_image_hf_token.addEventListener('change', () => {
+        const token_value = this.ui.dom_generate_from_image_hf_token?.value.trim() ?? ''
+        if (token_value.length > 0) {
+          window.localStorage.setItem(HF_TOKEN_STORAGE_KEY, token_value)
+        } else {
+          window.localStorage.removeItem(HF_TOKEN_STORAGE_KEY)
+        }
+      })
+    }
+
     if (this.ui.dom_generate_from_image_input !== null) {
       this.ui.dom_generate_from_image_input.addEventListener('change', () => {
         const chosen_file = this.ui.dom_generate_from_image_input?.files?.[0]
@@ -215,6 +233,7 @@ export class StepLoadModel extends EventTarget {
 
         const generator = new ImageTo3DGenerator()
         generator.set_progress_callback(set_status)
+        generator.set_hf_token(this.ui.dom_generate_from_image_hf_token?.value)
 
         generate_button.disabled = true
         set_status('Starting…')
@@ -222,6 +241,7 @@ export class StepLoadModel extends EventTarget {
         generator.generate_from_image(image_file)
           .then((glb_blob_url: string) => {
             set_status('Model generated. Loading…')
+            // reuse the exact same pipeline as a normal .glb upload
             this.load_model_file(glb_blob_url, 'glb')
             generate_button.disabled = false
           })
@@ -232,13 +252,6 @@ export class StepLoadModel extends EventTarget {
             new ModalDialog('Generation failed', message).show()
             generate_button.disabled = false
           })
-      })
-    }
-
-    if (this.ui.dom_load_model_debug_checkbox !== null) {
-      this.ui.dom_load_model_debug_checkbox.addEventListener('change', (event: Event) => {
-        const debug_mode = event.target.checked
-        this.debug_model_loading = debug_mode
       })
     }
 
