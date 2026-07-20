@@ -1,0 +1,108 @@
+import { Client } from '@gradio/client'
+
+/**
+ * Generates a 3D model (GLB) from a single 2D image by calling the free,
+ * publicly-hosted "tencent/Hunyuan3D-2" Hugging Face Space.
+ *
+ * The endpoint name and parameter order below were confirmed by reading
+ * the Space's own gradio_app.py (huggingface.co/spaces/tencent/Hunyuan3D-2
+ * -> Files -> gradio_app.py). Two relevant endpoints exist on that Space:
+ *   - /shape_generation  -> untextured mesh, ~40s GPU budget (faster, more reliable)
+ *   - /generation_all    -> textured mesh, ~90s GPU budget (slower, prettier,
+ *                           more likely to hit free ZeroGPU queue limits)
+ * Since mesh2motion only needs geometry to rig (texture is a bonus), this
+ * defaults to the faster /shape_generation endpoint.
+ *
+ * NOTE: this is a research demo, not a stable public API. Tencent can
+ * change the Space's code at any time, which would require updating the
+ * parameter list below to match. If generation starts failing, check
+ * huggingface.co/spaces/tencent/Hunyuan3D-2/blob/main/gradio_app.py again
+ * for the current function signature.
+ */
+export class ImageTo3DGenerator {
+  private space_id: string = 'tencent/Hunyuan3D-2'
+  private api_name: string = '/shape_generation'
+
+  private on_progress: (status: string) => void = () => {}
+
+  public set_progress_callback (callback: (status: string) => void): void {
+    this.on_progress = callback
+  }
+
+  public set_space (space_id: string, api_name?: string): void {
+    this.space_id = space_id
+    if (api_name !== undefined) {
+      this.api_name = api_name
+    }
+  }
+
+  /**
+   * Sends an image file to the configured Hugging Face Space and resolves
+   * with a blob: URL pointing to the generated GLB file, ready to be
+   * passed straight into StepLoadModel.load_model_file(url, 'glb').
+   */
+  public async generate_from_image (image_file: File): Promise<string> {
+    this.on_progress('Connecting to generation service…')
+    const client = await Client.connect(this.space_id)
+
+    this.on_progress('Uploading image and generating 3D model… free queues can take 30s-2min')
+
+    // positional args match shape_generation()'s signature in gradio_app.py:
+    // (caption, image, mv_image_front, mv_image_back, mv_image_left, mv_image_right,
+    //  steps, guidance_scale, seed, octree_resolution, check_box_rembg, num_chunks, randomize_seed)
+    const result = await client.predict(this.api_name, [
+      null, // caption - unused, we're doing image mode
+      image_file, // image
+      null, null, null, null, // multi-view images - unused
+      30, // steps
+      5.0, // guidance_scale
+      Math.floor(Math.random() * 1e7), // seed
+      256, // octree_resolution
+      true, // check_box_rembg - auto remove background, important for clean results
+      8000, // num_chunks
+      true // randomize_seed
+    ])
+
+    const glb_url = this.extract_glb_url(result.data)
+
+    if (glb_url === null) {
+      throw new Error(
+        'No GLB file found in the generation response. The Space may have ' +
+        'changed its API - check gradio_app.py on the Space page and update ' +
+        'ImageTo3DGenerator accordingly.'
+      )
+    }
+
+    this.on_progress('Downloading generated model…')
+    const glb_response = await fetch(glb_url)
+    if (!glb_response.ok) {
+      throw new Error(`Failed to download generated model (HTTP ${glb_response.status})`)
+    }
+    const glb_blob = await glb_response.blob()
+
+    return URL.createObjectURL(glb_blob)
+  }
+
+  /**
+   * Gradio endpoints return an array of outputs. File-type outputs come
+   * back as objects with a `url` (or `path`) property. This walks the
+   * response looking for something that looks like a GLB.
+   */
+  private extract_glb_url (data: unknown): string | null {
+    if (!Array.isArray(data)) {
+      return null
+    }
+
+    for (const item of data) {
+      if (item !== null && typeof item === 'object') {
+        const candidate = item as { url?: string, path?: string }
+        const url = candidate.url ?? candidate.path
+        if (typeof url === 'string' && url.toLowerCase().endsWith('.glb')) {
+          return url
+        }
+      }
+    }
+
+    return null
+  }
+}
