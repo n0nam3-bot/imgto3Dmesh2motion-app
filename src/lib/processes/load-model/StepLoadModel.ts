@@ -185,7 +185,18 @@ export class StepLoadModel extends EventTarget {
       }
     }
 
-    if (this.ui.dom_load_model_debug_checkbox !== null) {
+    if (this.ui.dom_generate_from_image_input !== null) {
+      this.ui.dom_generate_from_image_input.addEventListener('change', () => {
+        const chosen_file = this.ui.dom_generate_from_image_input?.files?.[0]
+        if (this.ui.dom_generate_from_image_filename !== null) {
+          this.ui.dom_generate_from_image_filename.textContent = chosen_file !== undefined
+            ? chosen_file.name
+            : 'No image chosen'
+        }
+      })
+    }
+
+    if (this.ui.dom_generate_from_image_button !== null) {
       this.ui.dom_generate_from_image_button.addEventListener('click', () => {
         const generate_button = this.ui.dom_generate_from_image_button as HTMLButtonElement
         const status_element = this.ui.dom_generate_from_image_status
@@ -211,7 +222,6 @@ export class StepLoadModel extends EventTarget {
         generator.generate_from_image(image_file)
           .then((glb_blob_url: string) => {
             set_status('Model generated. Loading…')
-            // reuse the exact same pipeline as a normal .glb upload
             this.load_model_file(glb_blob_url, 'glb')
             generate_button.disabled = false
           })
@@ -222,6 +232,13 @@ export class StepLoadModel extends EventTarget {
             new ModalDialog('Generation failed', message).show()
             generate_button.disabled = false
           })
+      })
+    }
+
+    if (this.ui.dom_load_model_debug_checkbox !== null) {
+      this.ui.dom_load_model_debug_checkbox.addEventListener('change', (event: Event) => {
+        const debug_mode = event.target.checked
+        this.debug_model_loading = debug_mode
       })
     }
 
