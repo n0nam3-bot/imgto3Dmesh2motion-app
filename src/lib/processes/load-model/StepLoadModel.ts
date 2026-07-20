@@ -11,6 +11,7 @@ import { BufferGeometry, Group, MeshPhongMaterial, Object3DEventMap, type Materi
 import { ModalDialog } from '../../ModalDialog.ts'
 import { ModelCleanupUtility } from './ModelCleanupUtility.ts'
 import { PlatformUtils } from '../../PlatformUtils.ts'
+import { ImageTo3DGenerator } from './ImageTo3DGenerator.ts'
 
 // Note: EventTarget is a built-ininterface and do not need to import it
 export class StepLoadModel extends EventTarget {
@@ -182,6 +183,46 @@ export class StepLoadModel extends EventTarget {
       if (PlatformUtils.isIOS()) {
         this.ui.dom_upload_model_button.setAttribute('accept', '*/*')
       }
+    }
+
+    if (this.ui.dom_load_model_debug_checkbox !== null) {
+      this.ui.dom_generate_from_image_button.addEventListener('click', () => {
+        const generate_button = this.ui.dom_generate_from_image_button as HTMLButtonElement
+        const status_element = this.ui.dom_generate_from_image_status
+        const image_file = this.ui.dom_generate_from_image_input?.files?.[0]
+
+        if (image_file === undefined) {
+          new ModalDialog('No image selected', 'Choose an image file first.').show()
+          return
+        }
+
+        const set_status = (message: string): void => {
+          if (status_element !== null) {
+            status_element.textContent = message
+          }
+        }
+
+        const generator = new ImageTo3DGenerator()
+        generator.set_progress_callback(set_status)
+
+        generate_button.disabled = true
+        set_status('Starting…')
+
+        generator.generate_from_image(image_file)
+          .then((glb_blob_url: string) => {
+            set_status('Model generated. Loading…')
+            // reuse the exact same pipeline as a normal .glb upload
+            this.load_model_file(glb_blob_url, 'glb')
+            generate_button.disabled = false
+          })
+          .catch((error: unknown) => {
+            console.error('Image-to-3D generation failed', error)
+            const message = error instanceof Error ? error.message : String(error)
+            set_status('')
+            new ModalDialog('Generation failed', message).show()
+            generate_button.disabled = false
+          })
+      })
     }
 
     if (this.ui.dom_load_model_debug_checkbox !== null) {
