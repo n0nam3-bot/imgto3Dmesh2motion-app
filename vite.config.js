@@ -7,7 +7,7 @@ const is_code_sandbox = 'SANDBOX_URL' in process.env || 'CODESANDBOX_HOST' in pr
 export default defineConfig({
   root: 'src/',
   publicDir: '../static/',
-  base: './',
+  base: '/imgto3Dmesh2motion-app/',
   define: {
     // expose all Cloudflare environment variables to client from window object
     PROCESS_ENV: JSON.stringify(process.env || 'unknown')
