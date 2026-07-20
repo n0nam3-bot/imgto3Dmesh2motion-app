@@ -74,12 +74,22 @@
 
           <div class="alternate-background-section">
             <p style="margin: 0">Generate from image</p>
+            <label
+              for="generate-from-image-input"
+              class="button"
+            >
+              <span class="button-icon-group">
+                <img src="images/icons/upload.svg" alt="Choose image" width="16" height="16" />
+                <span>Choose Image</span>
+              </span>
+            </label>
             <input
               id="generate-from-image-input"
               type="file"
               name="image-upload"
               accept="image/png, image/jpeg, image/webp"
             />
+            <p id="generate-from-image-filename" style="margin: 0.25rem 0 0; font-size: 0.85rem; opacity: 0.8;">No image chosen</p>
             <button id="generate-from-image-button">Generate 3D Model</button>
             <p id="generate-from-image-status" style="margin: 0.25rem 0 0; font-size: 0.85rem; opacity: 0.8;"></p>
             <p style="margin: 0.25rem 0 0; font-size: 0.75rem; opacity: 0.6;">
