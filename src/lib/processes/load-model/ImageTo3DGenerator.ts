@@ -7,11 +7,12 @@ import { Client } from '@gradio/client'
  * The endpoint name and parameter order below were confirmed by reading
  * the Space's own gradio_app.py (huggingface.co/spaces/tencent/Hunyuan3D-2
  * -> Files -> gradio_app.py). Two relevant endpoints exist on that Space:
- *   - /shape_generation  -> untextured mesh, ~40s GPU budget (faster, more reliable)
+ *   - /shape_generation  -> untextured (gray) mesh, ~40s GPU budget (faster, more reliable)
  *   - /generation_all    -> textured mesh, ~90s GPU budget (slower, prettier,
- *                           more likely to hit free ZeroGPU queue limits)
- * Since mesh2motion only needs geometry to rig (texture is a bonus), this
- * defaults to the faster /shape_generation endpoint.
+ *                           more likely to hit free ZeroGPU queue limits/timeouts)
+ * Defaulting to /generation_all now for textured results. If it times out
+ * or fails often on the free queue, call set_space(id, '/shape_generation')
+ * to fall back to the faster untextured endpoint.
  *
  * NOTE: this is a research demo, not a stable public API. Tencent can
  * change the Space's code at any time, which would require updating the
@@ -21,7 +22,7 @@ import { Client } from '@gradio/client'
  */
 export class ImageTo3DGenerator {
   private space_id: string = 'tencent/Hunyuan3D-2'
-  private api_name: string = '/shape_generation'
+  private api_name: string = '/generation_all'
 
   private on_progress: (status: string) => void = () => {}
 
@@ -45,7 +46,7 @@ export class ImageTo3DGenerator {
     this.on_progress('Connecting to generation service…')
     const client = await Client.connect(this.space_id)
 
-    this.on_progress('Uploading image and generating 3D model… free queues can take 30s-2min')
+    this.on_progress('Uploading image and generating textured 3D model… free queues can take 1-3min')
 
     // positional args match shape_generation()'s signature in gradio_app.py:
     // (caption, image, mv_image_front, mv_image_back, mv_image_left, mv_image_right,
@@ -57,7 +58,7 @@ export class ImageTo3DGenerator {
       30, // steps
       5.0, // guidance_scale
       Math.floor(Math.random() * 1e7), // seed
-      256, // octree_resolution
+      384, // octree_resolution - bumped up from 256 for finer mesh detail
       true, // check_box_rembg - auto remove background, important for clean results
       8000, // num_chunks
       true // randomize_seed
@@ -91,19 +92,24 @@ export class ImageTo3DGenerator {
 
   /**
    * Gradio endpoints return an array of outputs. File-type outputs
-   * usually come back as objects with a `url` (or `path`) property, but
-   * depending on the Space's Gradio version can also come back as a
-   * plain string path/URL. This walks the response looking for
-   * anything that looks like a GLB, in either shape.
+   * usually come back as objects with a `url` (or `path`) property
+   * (sometimes wrapped in a gr.update() `.value`), but can also come
+   * back as a plain string path/URL depending on the Space's Gradio
+   * version. /generation_all returns BOTH an untextured and a textured
+   * mesh - this collects every GLB found and prefers one whose filename
+   * suggests it's the textured version.
    */
   private extract_glb_url (data: unknown): string | null {
     if (!Array.isArray(data)) {
       return null
     }
 
+    const found_glb_urls: string[] = []
+
     for (const item of data) {
       if (typeof item === 'string' && item.toLowerCase().endsWith('.glb')) {
-        return item
+        found_glb_urls.push(item)
+        continue
       }
 
       if (item !== null && typeof item === 'object') {
@@ -115,11 +121,16 @@ export class ImageTo3DGenerator {
         const candidate = unwrapped as { url?: string, path?: string }
         const url = candidate.url ?? candidate.path
         if (typeof url === 'string' && url.toLowerCase().endsWith('.glb')) {
-          return url
+          found_glb_urls.push(url)
         }
       }
     }
 
-    return null
+    if (found_glb_urls.length === 0) {
+      return null
+    }
+
+    const textured_match = found_glb_urls.find((url) => url.toLowerCase().includes('textured'))
+    return textured_match ?? found_glb_urls[0]
   }
 }
