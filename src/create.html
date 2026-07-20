@@ -73,6 +73,23 @@
           <div style="text-align: center; font-size: 1.5rem">or</div>
 
           <div class="alternate-background-section">
+            <p style="margin: 0">Generate from image</p>
+            <input
+              id="generate-from-image-input"
+              type="file"
+              name="image-upload"
+              accept="image/png, image/jpeg, image/webp"
+            />
+            <button id="generate-from-image-button">Generate 3D Model</button>
+            <p id="generate-from-image-status" style="margin: 0.25rem 0 0; font-size: 0.85rem; opacity: 0.8;"></p>
+            <p style="margin: 0.25rem 0 0; font-size: 0.75rem; opacity: 0.6;">
+              Powered by a free, open-source AI model. Generation can take 30s-2min and quality varies by image.
+            </p>
+          </div>
+
+          <div style="text-align: center; font-size: 1.5rem">or</div>
+
+          <div class="alternate-background-section">
             <p style="margin: 0">Reference model</p>
             <select id="model-selection">
               <option value="models/model-human.glb">Human</option>
