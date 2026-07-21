@@ -211,6 +211,21 @@ export class StepLoadModel extends EventTarget {
             ? chosen_file.name
             : 'No image chosen'
         }
+
+        const preview_element = this.ui.dom_generate_from_image_preview
+        if (preview_element !== null) {
+          if (preview_element.src.startsWith('blob:')) {
+            URL.revokeObjectURL(preview_element.src)
+          }
+
+          if (chosen_file !== undefined) {
+            preview_element.src = URL.createObjectURL(chosen_file)
+            preview_element.style.display = 'block'
+          } else {
+            preview_element.removeAttribute('src')
+            preview_element.style.display = 'none'
+          }
+        }
       })
     }
 
