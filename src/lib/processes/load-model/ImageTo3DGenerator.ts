@@ -66,13 +66,16 @@ export class ImageTo3DGenerator {
       return await this.run_generation(client, image_file, this.api_name)
     } catch (error: unknown) {
       const message = this.describe_unknown_error(error)
-      const is_quota_error = /quota/i.test(message)
 
-      if (is_quota_error && this.api_name !== this.fallback_api_name) {
+      if (this.api_name !== this.fallback_api_name) {
         this.on_progress(
-          'Free textured-generation quota exceeded - falling back to the faster untextured version…'
+          `Textured generation failed (${message.slice(0, 80)}) - falling back to the faster untextured version…`
         )
-        return await this.run_generation(client, image_file, this.fallback_api_name)
+        try {
+          return await this.run_generation(client, image_file, this.fallback_api_name)
+        } catch (fallback_error: unknown) {
+          throw new Error(this.describe_unknown_error(fallback_error))
+        }
       }
 
       throw new Error(message)
