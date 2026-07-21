@@ -240,9 +240,29 @@ export class StepLoadModel extends EventTarget {
           return
         }
 
+        let latest_status_message = ''
+        let generation_start_time = 0
+        let elapsed_timer: number | undefined
+
+        const render_status = (): void => {
+          if (status_element === null) {
+            return
+          }
+          const elapsed_seconds = Math.floor((Date.now() - generation_start_time) / 1000)
+          status_element.textContent = latest_status_message.length > 0
+            ? `${latest_status_message} (${elapsed_seconds}s)`
+            : ''
+        }
+
         const set_status = (message: string): void => {
-          if (status_element !== null) {
-            status_element.textContent = message
+          latest_status_message = message
+          render_status()
+        }
+
+        const stop_elapsed_timer = (): void => {
+          if (elapsed_timer !== undefined) {
+            window.clearInterval(elapsed_timer)
+            elapsed_timer = undefined
           }
         }
 
@@ -256,16 +276,20 @@ export class StepLoadModel extends EventTarget {
         }
 
         generate_button.disabled = true
+        generation_start_time = Date.now()
+        elapsed_timer = window.setInterval(render_status, 1000)
         set_status('Starting…')
 
         generator.generate_from_image(image_file)
           .then((glb_blob_url: string) => {
+            stop_elapsed_timer()
             set_status('Model generated. Loading…')
             // reuse the exact same pipeline as a normal .glb upload
             this.load_model_file(glb_blob_url, 'glb')
             generate_button.disabled = false
           })
           .catch((error: unknown) => {
+            stop_elapsed_timer()
             console.error('Image-to-3D generation failed', error)
             const message = error instanceof Error ? error.message : String(error)
             set_status('')
