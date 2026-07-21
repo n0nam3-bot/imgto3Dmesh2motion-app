@@ -74,11 +74,6 @@
 
           <div class="alternate-background-section">
             <p style="margin: 0">Generate from image</p>
-            <label for="generate-from-image-model" style="font-size: 0.8rem; opacity: 0.8;">AI model</label>
-            <select id="generate-from-image-model" style="width: 100%;">
-              <option value="hunyuan3d2" selected>Hunyuan3D-2 (textured, slower, ~1-3min)</option>
-              <option value="triposr">TripoSR (fast, no texture, ~10-30s)</option>
-            </select>
             <label
               for="generate-from-image-input"
               class="button"
@@ -115,6 +110,23 @@
                 (read access is enough). Saved only in this browser.
               </p>
             </details>
+            <label for="generate-from-image-target-faces" style="font-size: 0.8rem; opacity: 0.8; margin-top: 0.5rem; display: block;">
+              Target face count (optional)
+            </label>
+            <input
+              id="generate-from-image-target-faces"
+              type="number"
+              min="500"
+              step="500"
+              placeholder="e.g. 8000 - leave blank for full quality"
+              style="width: 100%; box-sizing: border-box;"
+            />
+            <p style="margin: 0.25rem 0 0; font-size: 0.7rem; opacity: 0.6;">
+              Lower face counts rig and animate more predictably. AI-generated
+              meshes are often 50,000+ faces; something like 5,000-15,000
+              tends to work well for game characters. Reduction happens in
+              your browser after generation, before rigging.
+            </p>
             <button id="generate-from-image-button">Generate 3D Model</button>
             <p id="generate-from-image-status" style="margin: 0.25rem 0 0; font-size: 0.85rem; opacity: 0.8;"></p>
             <p style="margin: 0.25rem 0 0; font-size: 0.75rem; opacity: 0.6;">
