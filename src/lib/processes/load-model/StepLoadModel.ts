@@ -12,6 +12,7 @@ import { ModalDialog } from '../../ModalDialog.ts'
 import { ModelCleanupUtility } from './ModelCleanupUtility.ts'
 import { PlatformUtils } from '../../PlatformUtils.ts'
 import { ImageTo3DGenerator } from './ImageTo3DGenerator.ts'
+import { MeshFaceReducer } from './MeshFaceReducer.ts'
 
 // Note: EventTarget is a built-ininterface and do not need to import it
 export class StepLoadModel extends EventTarget {
@@ -270,22 +271,27 @@ export class StepLoadModel extends EventTarget {
         generator.set_progress_callback(set_status)
         generator.set_hf_token(this.ui.dom_generate_from_image_hf_token?.value)
 
-        const selected_provider = this.ui.dom_generate_from_image_model?.value
-        if (selected_provider === 'triposr' || selected_provider === 'hunyuan3d2') {
-          generator.set_provider(selected_provider)
-        }
-
         generate_button.disabled = true
         generation_start_time = Date.now()
         elapsed_timer = window.setInterval(render_status, 1000)
         set_status('Starting…')
 
         generator.generate_from_image(image_file)
-          .then((glb_blob_url: string) => {
+          .then(async (glb_blob_url: string) => {
+            const target_faces_raw = this.ui.dom_generate_from_image_target_faces?.value.trim() ?? ''
+            const target_face_count = target_faces_raw.length > 0 ? parseInt(target_faces_raw, 10) : NaN
+
+            let final_glb_url = glb_blob_url
+            if (!isNaN(target_face_count) && target_face_count > 0) {
+              set_status('Reducing face count…')
+              const reducer = new MeshFaceReducer()
+              final_glb_url = await reducer.reduce_glb_face_count(glb_blob_url, target_face_count)
+            }
+
             stop_elapsed_timer()
             set_status('Model generated. Loading…')
             // reuse the exact same pipeline as a normal .glb upload
-            this.load_model_file(glb_blob_url, 'glb')
+            this.load_model_file(final_glb_url, 'glb')
             generate_button.disabled = false
           })
           .catch((error: unknown) => {
