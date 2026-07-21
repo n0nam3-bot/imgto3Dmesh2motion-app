@@ -250,6 +250,11 @@ export class StepLoadModel extends EventTarget {
         generator.set_progress_callback(set_status)
         generator.set_hf_token(this.ui.dom_generate_from_image_hf_token?.value)
 
+        const selected_provider = this.ui.dom_generate_from_image_model?.value
+        if (selected_provider === 'triposr' || selected_provider === 'hunyuan3d2') {
+          generator.set_provider(selected_provider)
+        }
+
         generate_button.disabled = true
         set_status('Starting…')
 
