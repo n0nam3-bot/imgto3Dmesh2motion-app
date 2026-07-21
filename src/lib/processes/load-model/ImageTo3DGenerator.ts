@@ -1,29 +1,22 @@
 import { Client } from '@gradio/client'
 
+export type ImageTo3DProvider = 'hunyuan3d2' | 'triposr'
+
 /**
- * Generates a 3D model (GLB) from a single 2D image by calling the free,
- * publicly-hosted "tencent/Hunyuan3D-2" Hugging Face Space.
+ * Generates a 3D model (GLB) from a single 2D image using one of several
+ * free, publicly-hosted Hugging Face Spaces. Each Space has its own API
+ * shape - the endpoint names and parameters below were confirmed by
+ * reading each Space's own source file directly (not guessed):
+ *   - tencent/Hunyuan3D-2 -> gradio_app.py (huggingface.co/spaces/tencent/Hunyuan3D-2)
+ *   - stabilityai/TripoSR -> app.py (huggingface.co/spaces/stabilityai/TripoSR)
  *
- * The endpoint name and parameter order below were confirmed by reading
- * the Space's own gradio_app.py (huggingface.co/spaces/tencent/Hunyuan3D-2
- * -> Files -> gradio_app.py). Two relevant endpoints exist on that Space:
- *   - /shape_generation  -> untextured (gray) mesh, ~40s GPU budget (faster, more reliable)
- *   - /generation_all    -> textured mesh, ~90s GPU budget (slower, prettier,
- *                           more likely to hit free ZeroGPU queue limits/timeouts)
- * Defaulting to /generation_all now for textured results. If it times out
- * or fails often on the free queue, call set_space(id, '/shape_generation')
- * to fall back to the faster untextured endpoint.
- *
- * NOTE: this is a research demo, not a stable public API. Tencent can
- * change the Space's code at any time, which would require updating the
- * parameter list below to match. If generation starts failing, check
- * huggingface.co/spaces/tencent/Hunyuan3D-2/blob/main/gradio_app.py again
- * for the current function signature.
+ * NOTE: these are research demos, not stable public APIs. The Space
+ * owners can change their code at any time, which would require updating
+ * the calls below to match. If generation starts failing, re-check the
+ * relevant Space's source file for its current function signature.
  */
 export class ImageTo3DGenerator {
-  private space_id: string = 'tencent/Hunyuan3D-2'
-  private api_name: string = '/generation_all'
-  private fallback_api_name: string = '/shape_generation'
+  private provider: ImageTo3DProvider = 'hunyuan3d2'
   private hf_token: string | undefined
 
   private on_progress: (status: string) => void = () => {}
@@ -32,11 +25,8 @@ export class ImageTo3DGenerator {
     this.on_progress = callback
   }
 
-  public set_space (space_id: string, api_name?: string): void {
-    this.space_id = space_id
-    if (api_name !== undefined) {
-      this.api_name = api_name
-    }
+  public set_provider (provider: ImageTo3DProvider): void {
+    this.provider = provider
   }
 
   /**
@@ -49,46 +39,54 @@ export class ImageTo3DGenerator {
   }
 
   /**
-   * Sends an image file to the configured Hugging Face Space and resolves
-   * with a blob: URL pointing to the generated GLB file, ready to be
-   * passed straight into StepLoadModel.load_model_file(url, 'glb').
-   *
-   * If the textured endpoint fails specifically due to a ZeroGPU quota
-   * error, this automatically retries once against the lighter/faster
-   * untextured endpoint rather than failing outright.
+   * Sends an image file to the selected provider and resolves with a
+   * blob: URL pointing to the generated GLB file, ready to be passed
+   * straight into StepLoadModel.load_model_file(url, 'glb').
    */
   public async generate_from_image (image_file: File): Promise<string> {
+    if (this.provider === 'triposr') {
+      return await this.generate_with_triposr(image_file)
+    }
+
+    return await this.generate_with_hunyuan3d2(image_file)
+  }
+
+  // ============================================================
+  // tencent/Hunyuan3D-2
+  // ============================================================
+
+  private async generate_with_hunyuan3d2 (image_file: File): Promise<string> {
+    const space_id = 'tencent/Hunyuan3D-2'
+    const primary_api_name = '/generation_all' // textured, ~90s GPU budget
+    const fallback_api_name = '/shape_generation' // untextured, ~40s GPU budget, more reliable
+
     this.on_progress('Connecting to generation service…')
-    const connect_options = this.hf_token !== undefined ? { token: this.hf_token as `hf_${string}` } : undefined
-    const client = await Client.connect(this.space_id, connect_options)
+    const client = await Client.connect(space_id, this.connect_options())
 
     try {
-      return await this.run_generation(client, image_file, this.api_name)
+      return await this.run_hunyuan3d2_call(client, image_file, primary_api_name, fallback_api_name)
     } catch (error: unknown) {
       const message = this.describe_unknown_error(error)
 
-      if (this.api_name !== this.fallback_api_name) {
-        this.on_progress(
-          `Textured generation failed (${message.slice(0, 80)}) - falling back to the faster untextured version…`
-        )
-        try {
-          return await this.run_generation(client, image_file, this.fallback_api_name)
-        } catch (fallback_error: unknown) {
-          throw new Error(this.describe_unknown_error(fallback_error))
-        }
+      this.on_progress(
+        `Textured generation failed (${message.slice(0, 80)}) - falling back to the faster untextured version…`
+      )
+      try {
+        return await this.run_hunyuan3d2_call(client, image_file, fallback_api_name, fallback_api_name)
+      } catch (fallback_error: unknown) {
+        throw new Error(this.describe_unknown_error(fallback_error))
       }
-
-      throw new Error(message)
     }
   }
 
-  private async run_generation (
+  private async run_hunyuan3d2_call (
     client: Awaited<ReturnType<typeof Client.connect>>,
     image_file: File,
-    api_name: string
+    api_name: string,
+    fallback_api_name: string
   ): Promise<string> {
     this.on_progress(
-      api_name === this.fallback_api_name
+      api_name === fallback_api_name
         ? 'Uploading image and generating 3D model… free queues can take 30s-2min'
         : 'Uploading image and generating textured 3D model… free queues can take 1-3min'
     )
@@ -114,10 +112,68 @@ export class ImageTo3DGenerator {
       throw new Error(this.describe_unknown_error(predict_error))
     }
 
-    const glb_path = this.extract_glb_url(result.data)
+    return await this.resolve_glb_from_result(client, result.data)
+  }
+
+  // ============================================================
+  // stabilityai/TripoSR
+  // ============================================================
+
+  private async generate_with_triposr (image_file: File): Promise<string> {
+    const space_id = 'stabilityai/TripoSR'
+
+    this.on_progress('Connecting to generation service…')
+    const client = await Client.connect(space_id, this.connect_options())
+
+    // TripoSR's UI chains 3 calls: check_input_image -> preprocess -> generate.
+    // The check is just a null-check we already do client-side, so we skip
+    // straight to preprocess -> generate, matching app.py's function signatures.
+    this.on_progress('Removing background and preprocessing image…')
+    let preprocess_result: Awaited<ReturnType<typeof client.predict>>
+    try {
+      preprocess_result = await client.predict('/preprocess', [
+        image_file, // input_image
+        true, // do_remove_background
+        0.85 // foreground_ratio
+      ])
+    } catch (preprocess_error: unknown) {
+      throw new Error(this.describe_unknown_error(preprocess_error))
+    }
+
+    const processed_image = preprocess_result.data[0]
+
+    this.on_progress('Generating 3D mesh… usually 10-30s')
+    let generate_result: Awaited<ReturnType<typeof client.predict>>
+    try {
+      generate_result = await client.predict('/generate', [
+        processed_image, // output of /preprocess, fed straight back in
+        256 // mc_resolution (marching cubes resolution)
+      ])
+    } catch (generate_error: unknown) {
+      throw new Error(this.describe_unknown_error(generate_error))
+    }
+
+    // generate() returns (obj_path, glb_path) - extractor already skips
+    // non-.glb entries so the .obj path is ignored automatically
+    return await this.resolve_glb_from_result(client, generate_result.data)
+  }
+
+  // ============================================================
+  // shared helpers
+  // ============================================================
+
+  private connect_options (): { token: `hf_${string}` } | undefined {
+    return this.hf_token !== undefined ? { token: this.hf_token as `hf_${string}` } : undefined
+  }
+
+  private async resolve_glb_from_result (
+    client: Awaited<ReturnType<typeof Client.connect>>,
+    data: unknown
+  ): Promise<string> {
+    const glb_path = this.extract_glb_url(data)
 
     if (glb_path === null) {
-      const raw_preview = JSON.stringify(result.data, null, 2).slice(0, 500)
+      const raw_preview = JSON.stringify(data, null, 2).slice(0, 500)
       throw new Error(
         'No GLB file found in the generation response. Raw response ' +
         `(screenshot this and send it back): ${raw_preview}`
@@ -178,9 +234,10 @@ export class ImageTo3DGenerator {
    * usually come back as objects with a `url` (or `path`) property
    * (sometimes wrapped in a gr.update() `.value`), but can also come
    * back as a plain string path/URL depending on the Space's Gradio
-   * version. /generation_all returns BOTH an untextured and a textured
-   * mesh - this collects every GLB found and prefers one whose filename
-   * suggests it's the textured version.
+   * version. Some endpoints return multiple files (e.g. an untextured
+   * AND textured mesh, or an .obj AND .glb) - this collects every GLB
+   * found and prefers one whose filename suggests it's the textured
+   * version, otherwise takes the first.
    */
   private extract_glb_url (data: unknown): string | null {
     if (!Array.isArray(data)) {
