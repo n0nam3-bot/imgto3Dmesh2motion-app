@@ -13,6 +13,7 @@ export class UI {
   dom_generate_from_image_status: HTMLElement | null = null
   dom_generate_from_image_filename: HTMLElement | null = null
   dom_generate_from_image_hf_token: HTMLInputElement | null = null
+  dom_generate_from_image_preview: HTMLImageElement | null = null
 
   // toggle for showing/hiding skeleton in the 3D view
   dom_show_skeleton_container: HTMLElement | null = null
@@ -147,6 +148,7 @@ export class UI {
     this.dom_generate_from_image_status = document.querySelector('#generate-from-image-status')
     this.dom_generate_from_image_filename = document.querySelector('#generate-from-image-filename')
     this.dom_generate_from_image_hf_token = document.querySelector('#generate-from-image-hf-token')
+    this.dom_generate_from_image_preview = document.querySelector('#generate-from-image-preview')
 
     // UI controls with load skeleton step
     this.dom_rotate_model_x_button = document.querySelector('#rotate-model-x-button')
