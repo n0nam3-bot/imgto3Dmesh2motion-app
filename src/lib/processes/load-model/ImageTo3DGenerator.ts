@@ -1,4 +1,4 @@
-import { Client } from '@gradio/client'
+import { Client, handle_file } from '@gradio/client'
 
 export type ImageTo3DProvider = 'hunyuan3d2' | 'triposr'
 
@@ -141,12 +141,21 @@ export class ImageTo3DGenerator {
     }
 
     const processed_image = preprocess_result.data[0]
+    const processed_image_url = this.extract_file_url(processed_image, client)
+
+    if (processed_image_url === null) {
+      const raw_preview = JSON.stringify(preprocess_result.data, null, 2).slice(0, 500)
+      throw new Error(
+        'Could not find the preprocessed image URL in the response. Raw response ' +
+        `(screenshot this and send it back): ${raw_preview}`
+      )
+    }
 
     this.on_progress('Generating 3D mesh… usually 10-30s')
     let generate_result: Awaited<ReturnType<typeof client.predict>>
     try {
       generate_result = await client.predict('/generate', [
-        processed_image, // output of /preprocess, fed straight back in
+        handle_file(processed_image_url), // must be wrapped, not passed as a raw object
         256 // mc_resolution (marching cubes resolution)
       ])
     } catch (generate_error: unknown) {
@@ -227,6 +236,41 @@ export class ImageTo3DGenerator {
     }
 
     return String(error)
+  }
+
+  /**
+   * Pulls a usable file URL/path out of a single Gradio output item,
+   * unwrapping gr.update() `.value` wrappers and handling both string
+   * and object {url, path} shapes. Resolves relative paths against the
+   * Space's own origin. Returns null if nothing file-like is found.
+   */
+  private extract_file_url (
+    item: unknown,
+    client: Awaited<ReturnType<typeof Client.connect>>
+  ): string | null {
+    let raw_url: string | null = null
+
+    if (typeof item === 'string') {
+      raw_url = item
+    } else if (item !== null && typeof item === 'object') {
+      const unwrapped = ('value' in item && item.value !== null && typeof item.value === 'object')
+        ? item.value
+        : item
+      const candidate = unwrapped as { url?: string, path?: string }
+      raw_url = candidate.url ?? candidate.path ?? null
+    }
+
+    if (raw_url === null) {
+      return null
+    }
+
+    if (raw_url.startsWith('http')) {
+      return raw_url
+    }
+
+    const client_config = (client as unknown as { config?: { root?: string } }).config
+    const space_root = client_config?.root ?? ''
+    return `${space_root}${raw_url}`
   }
 
   /**
