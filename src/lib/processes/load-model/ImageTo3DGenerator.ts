@@ -52,7 +52,11 @@ export class ImageTo3DGenerator {
   public async generate_from_image (image_file: File): Promise<string> {
     this.on_progress('Connecting to generation service…')
     const connect_options = this.hf_token !== undefined ? { token: this.hf_token as `hf_${string}` } : undefined
-    const client = await Client.connect(this.space_id, connect_options)
+    const client = await this.with_timeout(
+      Client.connect(this.space_id, connect_options),
+      30_000,
+      'Timed out connecting to the generation service after 30s.'
+    )
 
     try {
       return await this.run_generation(client, image_file, this.api_name)
@@ -74,6 +78,27 @@ export class ImageTo3DGenerator {
     }
   }
 
+  /**
+   * Races a promise against a timeout, since the free Hugging Face queue
+   * can stall indefinitely with no error at all (confirmed behavior, not
+   * hypothetical) - without this, a stuck request looks identical to a
+   * frozen app, with no way to tell the difference or recover.
+   */
+  private async with_timeout<T> (promise: Promise<T>, timeout_ms: number, timeout_message: string): Promise<T> {
+    let timeout_handle: number | undefined
+    const timeout_promise = new Promise<never>((_, reject) => {
+      timeout_handle = window.setTimeout(() => { reject(new Error(timeout_message)) }, timeout_ms)
+    })
+
+    try {
+      return await Promise.race([promise, timeout_promise])
+    } finally {
+      if (timeout_handle !== undefined) {
+        window.clearTimeout(timeout_handle)
+      }
+    }
+  }
+
   private async run_generation (
     client: Awaited<ReturnType<typeof Client.connect>>,
     image_file: File,
@@ -88,20 +113,25 @@ export class ImageTo3DGenerator {
     // positional args match shape_generation()'s / generation_all()'s signature in gradio_app.py:
     // (caption, image, mv_image_front, mv_image_back, mv_image_left, mv_image_right,
     //  steps, guidance_scale, seed, octree_resolution, check_box_rembg, num_chunks, randomize_seed)
+    const timeout_ms = api_name === this.fallback_api_name ? 150_000 : 240_000
     let result: Awaited<ReturnType<typeof client.predict>>
     try {
-      result = await client.predict(api_name, [
-        null, // caption - unused, we're doing image mode
-        image_file, // image
-        null, null, null, null, // multi-view images - unused
-        30, // steps
-        5.0, // guidance_scale
-        Math.floor(Math.random() * 1e7), // seed
-        384, // octree_resolution - bumped up from 256 for finer mesh detail
-        true, // check_box_rembg - auto remove background, important for clean results
-        8000, // num_chunks
-        true // randomize_seed
-      ])
+      result = await this.with_timeout(
+        client.predict(api_name, [
+          null, // caption - unused, we're doing image mode
+          image_file, // image
+          null, null, null, null, // multi-view images - unused
+          30, // steps
+          5.0, // guidance_scale
+          Math.floor(Math.random() * 1e7), // seed
+          384, // octree_resolution - bumped up from 256 for finer mesh detail
+          true, // check_box_rembg - auto remove background, important for clean results
+          8000, // num_chunks
+          true // randomize_seed
+        ]),
+        timeout_ms,
+        `Generation timed out after ${Math.round(timeout_ms / 1000)}s - the free queue is likely extremely busy right now.`
+      )
     } catch (predict_error: unknown) {
       throw new Error(this.describe_unknown_error(predict_error))
     }
@@ -123,7 +153,11 @@ export class ImageTo3DGenerator {
     const glb_url = glb_path.startsWith('http') ? glb_path : `${space_root}${glb_path}`
 
     this.on_progress('Downloading generated model…')
-    const glb_response = await fetch(glb_url)
+    const glb_response = await this.with_timeout(
+      fetch(glb_url),
+      60_000,
+      'Timed out downloading the generated model after 60s.'
+    )
     if (!glb_response.ok) {
       throw new Error(`Failed to download generated model (HTTP ${glb_response.status})`)
     }
