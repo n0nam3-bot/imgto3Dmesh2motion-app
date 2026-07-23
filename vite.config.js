@@ -17,6 +17,10 @@ export default defineConfig({
       host: true,
       open: !is_code_sandbox // Open window if it's not a CodeSandbox
     },
+  worker:
+    {
+      format: 'es'
+    },
   build:
     {
       outDir: '../dist',
