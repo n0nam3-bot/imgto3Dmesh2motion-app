@@ -446,12 +446,17 @@ export class StepLoadModel extends EventTarget {
   }
 
   private open_paint_overlay (glb_url: string): void {
-    const painter = this.get_or_create_texture_painter()
-    if (painter === null || this.ui.dom_paint_overlay === null) {
+    if (this.ui.dom_paint_overlay === null) {
       return
     }
 
     this.ui.dom_paint_overlay.style.display = 'flex'
+
+    const painter = this.get_or_create_texture_painter()
+    if (painter === null) {
+      return
+    }
+
     painter.set_brush_color(this.ui.dom_paint_overlay_color?.value ?? '#c23b3b')
     painter.set_brush_size(Number(this.ui.dom_paint_overlay_size?.value ?? 24))
     painter.load_model_from_url(glb_url)
