@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
+import createXAtlas, { type XAtlasModule } from 'xatlas-wasm'
 
 /**
  * Embeddable texture painter. Same painting approach as the standalone
@@ -30,6 +31,7 @@ export class EmbeddedTexturePainter {
   private readonly paint_canvas: HTMLCanvasElement = document.createElement('canvas')
   private readonly paint_context: CanvasRenderingContext2D
   private paint_texture: THREE.CanvasTexture | null = null
+  private xatlas_module: XAtlasModule | null = null
 
   private is_painting: boolean = false
   private is_animating: boolean = false
@@ -120,7 +122,7 @@ export class EmbeddedTexturePainter {
         this.loaded_scene = gltf.scene
         this.scene.add(this.loaded_scene)
 
-        this.setup_paintable_mesh()
+        void this.setup_paintable_mesh()
         this.frame_camera_to_object(this.loaded_scene)
       },
       undefined,
@@ -131,7 +133,7 @@ export class EmbeddedTexturePainter {
     )
   }
 
-  private setup_paintable_mesh (): void {
+  private async setup_paintable_mesh (): Promise<void> {
     if (this.loaded_scene === null) {
       return
     }
@@ -157,11 +159,17 @@ export class EmbeddedTexturePainter {
     let used_generated_uvs = false
     if (found_mesh === null && largest_mesh !== null) {
       // no mesh had UVs at all (common for untextured/shape-only outputs,
-      // which have no reason to include a texture mapping) - generate an
-      // approximate spherical projection so painting is possible anyway.
-      // Expect visible seams/stretching, especially on non-blob-like shapes.
-      this.generate_spherical_uvs((largest_mesh as THREE.Mesh).geometry)
-      found_mesh = largest_mesh
+      // which have no reason to include a texture mapping) - generate
+      // real UVs with xatlas so painting works properly on it.
+      this.on_status('No texture coordinates on this model - unwrapping UVs…')
+      const mesh_to_unwrap = largest_mesh as THREE.Mesh
+      try {
+        await this.generate_real_uvs(mesh_to_unwrap.geometry)
+      } catch (error: unknown) {
+        console.error('xatlas UV unwrap failed, falling back to spherical projection', error)
+        this.generate_spherical_uvs(mesh_to_unwrap.geometry)
+      }
+      found_mesh = mesh_to_unwrap
       used_generated_uvs = true
     }
 
@@ -198,18 +206,103 @@ export class EmbeddedTexturePainter {
 
     this.on_status(
       used_generated_uvs
-        ? 'No texture coordinates on this model - generated approximate ones. Painting works, but expect some stretching/seams. Drag on the model to paint.'
+        ? 'UVs generated. Drag directly on the model to paint. Drag empty space to orbit.'
         : 'Drag directly on the model to paint. Drag empty space to orbit.'
     )
   }
 
+  private async get_xatlas_module (): Promise<XAtlasModule> {
+    if (this.xatlas_module === null) {
+      this.xatlas_module = await createXAtlas()
+    }
+    return this.xatlas_module
+  }
+
   /**
-   * Generates approximate UV coordinates for a mesh that has none, using
-   * a simple spherical projection from the geometry's center. This will
-   * have visible seams and stretching (it's not a real UV unwrap), but
-   * it makes painting possible at all on meshes that otherwise have no
-   * defined mapping from 3D surface to 2D texture space - which is the
-   * common case for untextured/shape-only image-to-3D outputs.
+   * Generates real UV coordinates for a mesh that has none, using xatlas
+   * (the same UV-unwrapping library used by Blender's glTF exporter and
+   * other production tools). Rebuilds the geometry's position/normal/uv/
+   * index buffers from xatlas's output, since unwrapping can split
+   * vertices at chart seams (so output vertex count can differ from
+   * input).
+   */
+  private async generate_real_uvs (geometry: THREE.BufferGeometry): Promise<void> {
+    const position_attribute = geometry.attributes.position
+    if (position_attribute === undefined) {
+      throw new Error('Geometry has no position attribute to unwrap')
+    }
+
+    const xatlas = await this.get_xatlas_module()
+    const atlas = xatlas.createAtlas()
+
+    try {
+      const positions = position_attribute.array instanceof Float32Array
+        ? position_attribute.array
+        : Float32Array.from(position_attribute.array)
+
+      const index_attribute = geometry.getIndex()
+      const indices = index_attribute !== null
+        ? (index_attribute.array instanceof Uint32Array
+            ? index_attribute.array
+            : Uint32Array.from(index_attribute.array))
+        : undefined
+
+      const add_result = atlas.addMesh({ positions, indices })
+      if (add_result !== 0) {
+        throw new Error(`xatlas addMesh failed: ${xatlas.addMeshErrorString(add_result)}`)
+      }
+
+      atlas.generate()
+
+      const output_mesh = atlas.getMesh(0)
+      const output_vertex_count = output_mesh.vertexCount
+
+      const normal_attribute = geometry.attributes.normal
+      const normals = normal_attribute?.array
+      const has_normals = normal_attribute !== undefined
+
+      const new_positions = new Float32Array(output_vertex_count * 3)
+      const new_uvs = new Float32Array(output_vertex_count * 2)
+      const new_normals = has_normals ? new Float32Array(output_vertex_count * 3) : null
+
+      for (let i = 0; i < output_vertex_count; i++) {
+        const vertex = output_mesh.vertices[i]
+        const source_index = vertex.xref
+
+        new_positions[i * 3] = positions[source_index * 3]
+        new_positions[i * 3 + 1] = positions[source_index * 3 + 1]
+        new_positions[i * 3 + 2] = positions[source_index * 3 + 2]
+
+        // xatlas UVs are in atlas texel range, not normalized - divide down to 0-1
+        new_uvs[i * 2] = vertex.uv[0] / atlas.width
+        new_uvs[i * 2 + 1] = vertex.uv[1] / atlas.height
+
+        if (new_normals !== null && normals !== undefined) {
+          new_normals[i * 3] = normals[source_index * 3]
+          new_normals[i * 3 + 1] = normals[source_index * 3 + 1]
+          new_normals[i * 3 + 2] = normals[source_index * 3 + 2]
+        }
+      }
+
+      geometry.setAttribute('position', new THREE.BufferAttribute(new_positions, 3))
+      geometry.setAttribute('uv', new THREE.BufferAttribute(new_uvs, 2))
+      if (new_normals !== null) {
+        geometry.setAttribute('normal', new THREE.BufferAttribute(new_normals, 3))
+      } else {
+        geometry.computeVertexNormals()
+      }
+      geometry.setIndex(new THREE.BufferAttribute(output_mesh.indices, 1))
+      geometry.computeBoundingSphere()
+      geometry.computeBoundingBox()
+    } finally {
+      atlas.destroy()
+    }
+  }
+
+  /**
+   * Emergency fallback only - used if xatlas itself throws. A simple
+   * spherical projection from the geometry's center. Expect visible
+   * seams/stretching; this is not a real UV unwrap.
    */
   private generate_spherical_uvs (geometry: THREE.BufferGeometry): void {
     const position = geometry.attributes.position
