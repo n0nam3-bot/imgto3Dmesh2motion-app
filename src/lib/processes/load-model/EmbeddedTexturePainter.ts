@@ -226,8 +226,14 @@ export class EmbeddedTexturePainter {
   }
 
   private on_pointer_down (event: PointerEvent): void {
+    if (this.paintable_mesh === null) {
+      this.on_status('DEBUG: no paintable mesh set (model may not have loaded, or has no UV coordinates).')
+      return
+    }
+
     const hit = this.raycast_from_event(event)
     if (hit === null) {
+      this.on_status('DEBUG: pointer registered, but raycast found no surface under it.')
       return
     }
     event.preventDefault()
@@ -235,6 +241,7 @@ export class EmbeddedTexturePainter {
     this.controls.enabled = false
     this.push_undo_snapshot()
     this.paint_at_hit(hit)
+    this.on_status(`DEBUG: hit at uv (${hit.uv?.x.toFixed(2) ?? 'none'}, ${hit.uv?.y.toFixed(2) ?? 'none'})`)
   }
 
   private on_pointer_move (event: PointerEvent): void {
