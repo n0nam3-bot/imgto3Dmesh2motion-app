@@ -32,6 +32,7 @@
     "three": "^0.183.0",
     "tippy.js": "^6.3.7",
     "vite-plugin-glsl": "^1.5.0",
-    "wrangler": "^4.77.0"
+    "wrangler": "^4.77.0",
+    "xatlas-wasm": "^0.1.3"
   }
 }
