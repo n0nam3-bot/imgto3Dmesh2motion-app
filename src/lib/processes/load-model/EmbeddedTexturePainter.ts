@@ -2,7 +2,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
-import createXAtlas, { type XAtlasModule } from 'xatlas-wasm'
+import type { UvUnwrapRequest, UvUnwrapResponse } from './UvUnwrapWorker.ts'
 
 /**
  * Embeddable texture painter. Same painting approach as the standalone
@@ -31,7 +31,6 @@ export class EmbeddedTexturePainter {
   private readonly paint_canvas: HTMLCanvasElement = document.createElement('canvas')
   private readonly paint_context: CanvasRenderingContext2D
   private paint_texture: THREE.CanvasTexture | null = null
-  private xatlas_module: XAtlasModule | null = null
 
   private is_painting: boolean = false
   private is_animating: boolean = false
@@ -211,20 +210,15 @@ export class EmbeddedTexturePainter {
     )
   }
 
-  private async get_xatlas_module (): Promise<XAtlasModule> {
-    if (this.xatlas_module === null) {
-      this.xatlas_module = await createXAtlas()
-    }
-    return this.xatlas_module
-  }
-
   /**
    * Generates real UV coordinates for a mesh that has none, using xatlas
    * (the same UV-unwrapping library used by Blender's glTF exporter and
-   * other production tools). Rebuilds the geometry's position/normal/uv/
-   * index buffers from xatlas's output, since unwrapping can split
-   * vertices at chart seams (so output vertex count can differ from
-   * input).
+   * other production tools) - run in a Web Worker rather than on the main
+   * thread, since it's synchronous CPU-bound work that can otherwise
+   * freeze the entire page with no way to recover (confirmed on a real
+   * AI-generated mesh). Running it in a worker also means a timeout can
+   * actually terminate it if it takes too long, which isn't possible for
+   * a blocking main-thread call.
    */
   private async generate_real_uvs (geometry: THREE.BufferGeometry): Promise<void> {
     const position_attribute = geometry.attributes.position
@@ -232,70 +226,74 @@ export class EmbeddedTexturePainter {
       throw new Error('Geometry has no position attribute to unwrap')
     }
 
-    const xatlas = await this.get_xatlas_module()
-    const atlas = xatlas.createAtlas()
+    const positions = position_attribute.array instanceof Float32Array
+      ? position_attribute.array.slice()
+      : Float32Array.from(position_attribute.array)
+
+    const index_attribute = geometry.getIndex()
+    const indices = index_attribute !== null
+      ? (index_attribute.array instanceof Uint32Array
+          ? index_attribute.array.slice()
+          : Uint32Array.from(index_attribute.array))
+      : undefined
+
+    const normal_attribute = geometry.attributes.normal
+    const normals = normal_attribute !== undefined
+      ? (normal_attribute.array instanceof Float32Array
+          ? normal_attribute.array.slice()
+          : Float32Array.from(normal_attribute.array))
+      : undefined
+
+    const request: UvUnwrapRequest = { positions, indices, normals }
+    const response = await this.run_uv_unwrap_worker(request, 60_000)
+
+    if (response.status === 'error') {
+      throw new Error(response.message)
+    }
+
+    geometry.setAttribute('position', new THREE.BufferAttribute(response.positions, 3))
+    geometry.setAttribute('uv', new THREE.BufferAttribute(response.uvs, 2))
+    if (response.normals !== undefined) {
+      geometry.setAttribute('normal', new THREE.BufferAttribute(response.normals, 3))
+    } else {
+      geometry.computeVertexNormals()
+    }
+    geometry.setIndex(new THREE.BufferAttribute(response.indices, 1))
+    geometry.computeBoundingSphere()
+    geometry.computeBoundingBox()
+  }
+
+  private async run_uv_unwrap_worker (request: UvUnwrapRequest, timeout_ms: number): Promise<UvUnwrapResponse> {
+    const worker = new Worker(new URL('./UvUnwrapWorker.ts', import.meta.url), { type: 'module' })
 
     try {
-      const positions = position_attribute.array instanceof Float32Array
-        ? position_attribute.array
-        : Float32Array.from(position_attribute.array)
+      return await new Promise<UvUnwrapResponse>((resolve, reject) => {
+        const timeout_handle = window.setTimeout(() => {
+          reject(new Error(`UV unwrapping timed out after ${Math.round(timeout_ms / 1000)}s.`))
+        }, timeout_ms)
 
-      const index_attribute = geometry.getIndex()
-      const indices = index_attribute !== null
-        ? (index_attribute.array instanceof Uint32Array
-            ? index_attribute.array
-            : Uint32Array.from(index_attribute.array))
-        : undefined
-
-      const add_result = atlas.addMesh({ positions, indices })
-      if (add_result !== 0) {
-        throw new Error(`xatlas addMesh failed: ${xatlas.addMeshErrorString(add_result)}`)
-      }
-
-      atlas.generate()
-
-      const output_mesh = atlas.getMesh(0)
-      const output_vertex_count = output_mesh.vertexCount
-
-      const normal_attribute = geometry.attributes.normal
-      const normals = normal_attribute?.array
-      const has_normals = normal_attribute !== undefined
-
-      const new_positions = new Float32Array(output_vertex_count * 3)
-      const new_uvs = new Float32Array(output_vertex_count * 2)
-      const new_normals = has_normals ? new Float32Array(output_vertex_count * 3) : null
-
-      for (let i = 0; i < output_vertex_count; i++) {
-        const vertex = output_mesh.vertices[i]
-        const source_index = vertex.xref
-
-        new_positions[i * 3] = positions[source_index * 3]
-        new_positions[i * 3 + 1] = positions[source_index * 3 + 1]
-        new_positions[i * 3 + 2] = positions[source_index * 3 + 2]
-
-        // xatlas UVs are in atlas texel range, not normalized - divide down to 0-1
-        new_uvs[i * 2] = vertex.uv[0] / atlas.width
-        new_uvs[i * 2 + 1] = vertex.uv[1] / atlas.height
-
-        if (new_normals !== null && normals !== undefined) {
-          new_normals[i * 3] = normals[source_index * 3]
-          new_normals[i * 3 + 1] = normals[source_index * 3 + 1]
-          new_normals[i * 3 + 2] = normals[source_index * 3 + 2]
+        worker.onmessage = (event: MessageEvent<UvUnwrapResponse>) => {
+          window.clearTimeout(timeout_handle)
+          resolve(event.data)
         }
-      }
 
-      geometry.setAttribute('position', new THREE.BufferAttribute(new_positions, 3))
-      geometry.setAttribute('uv', new THREE.BufferAttribute(new_uvs, 2))
-      if (new_normals !== null) {
-        geometry.setAttribute('normal', new THREE.BufferAttribute(new_normals, 3))
-      } else {
-        geometry.computeVertexNormals()
-      }
-      geometry.setIndex(new THREE.BufferAttribute(output_mesh.indices, 1))
-      geometry.computeBoundingSphere()
-      geometry.computeBoundingBox()
+        worker.onerror = (error: ErrorEvent) => {
+          window.clearTimeout(timeout_handle)
+          reject(new Error(error.message))
+        }
+
+        const transfer_list: ArrayBuffer[] = [request.positions.buffer]
+        if (request.indices !== undefined) {
+          transfer_list.push(request.indices.buffer)
+        }
+        if (request.normals !== undefined) {
+          transfer_list.push(request.normals.buffer)
+        }
+
+        worker.postMessage(request, transfer_list)
+      })
     } finally {
-      atlas.destroy()
+      worker.terminate()
     }
   }
 
