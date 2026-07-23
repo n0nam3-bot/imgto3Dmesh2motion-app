@@ -137,17 +137,37 @@ export class EmbeddedTexturePainter {
     }
 
     let found_mesh: THREE.Mesh | null = null
+    let largest_mesh: THREE.Mesh | null = null
+    let largest_vertex_count = -1
+
     this.loaded_scene.traverse((child) => {
-      if (found_mesh === null && child instanceof THREE.Mesh && child.geometry.attributes.uv !== undefined) {
+      if (!(child instanceof THREE.Mesh)) {
+        return
+      }
+      if (found_mesh === null && child.geometry.attributes.uv !== undefined) {
         found_mesh = child
+      }
+      const vertex_count = child.geometry.attributes.position?.count ?? 0
+      if (vertex_count > largest_vertex_count) {
+        largest_vertex_count = vertex_count
+        largest_mesh = child
       }
     })
 
+    let used_generated_uvs = false
+    if (found_mesh === null && largest_mesh !== null) {
+      // no mesh had UVs at all (common for untextured/shape-only outputs,
+      // which have no reason to include a texture mapping) - generate an
+      // approximate spherical projection so painting is possible anyway.
+      // Expect visible seams/stretching, especially on non-blob-like shapes.
+      this.generate_spherical_uvs((largest_mesh as THREE.Mesh).geometry)
+      found_mesh = largest_mesh
+      used_generated_uvs = true
+    }
+
     if (found_mesh === null) {
       this.paintable_mesh = null
-      this.on_status(
-        'This model has no UV coordinates, so it can\'t be painted on directly.'
-      )
+      this.on_status('No mesh found in this model at all.')
       return
     }
 
@@ -176,7 +196,52 @@ export class EmbeddedTexturePainter {
     this.undo_stack.length = 0
     this.push_undo_snapshot()
 
-    this.on_status('Drag directly on the model to paint. Drag empty space to orbit.')
+    this.on_status(
+      used_generated_uvs
+        ? 'No texture coordinates on this model - generated approximate ones. Painting works, but expect some stretching/seams. Drag on the model to paint.'
+        : 'Drag directly on the model to paint. Drag empty space to orbit.'
+    )
+  }
+
+  /**
+   * Generates approximate UV coordinates for a mesh that has none, using
+   * a simple spherical projection from the geometry's center. This will
+   * have visible seams and stretching (it's not a real UV unwrap), but
+   * it makes painting possible at all on meshes that otherwise have no
+   * defined mapping from 3D surface to 2D texture space - which is the
+   * common case for untextured/shape-only image-to-3D outputs.
+   */
+  private generate_spherical_uvs (geometry: THREE.BufferGeometry): void {
+    const position = geometry.attributes.position
+    if (position === undefined) {
+      return
+    }
+
+    geometry.computeBoundingSphere()
+    const center = geometry.boundingSphere?.center ?? new THREE.Vector3()
+
+    const vertex_count = position.count
+    const uv_array = new Float32Array(vertex_count * 2)
+    const direction = new THREE.Vector3()
+
+    for (let i = 0; i < vertex_count; i++) {
+      direction.set(
+        position.getX(i) - center.x,
+        position.getY(i) - center.y,
+        position.getZ(i) - center.z
+      )
+
+      if (direction.lengthSq() < 1e-10) {
+        direction.set(0, 1, 0) // degenerate case: vertex sits exactly at center
+      } else {
+        direction.normalize()
+      }
+
+      uv_array[i * 2] = 0.5 + Math.atan2(direction.z, direction.x) / (2 * Math.PI)
+      uv_array[i * 2 + 1] = 0.5 - Math.asin(THREE.MathUtils.clamp(direction.y, -1, 1)) / Math.PI
+    }
+
+    geometry.setAttribute('uv', new THREE.BufferAttribute(uv_array, 2))
   }
 
   private fill_canvas_background (): void {
