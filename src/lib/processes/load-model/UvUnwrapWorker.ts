@@ -86,7 +86,13 @@ async function run_unwrap (request: UvUnwrapRequest): Promise<void> {
         positions: new_positions,
         uvs: new_uvs,
         normals: new_normals,
-        indices: output_mesh.indices as Uint32Array
+        // IMPORTANT: output_mesh.indices is very likely a live view into the
+        // WASM module's own linear memory, not an independent buffer. It
+        // must be COPIED before being transferred/used after atlas.destroy() -
+        // transferring the original would hand over (and detach) a chunk of
+        // the WASM heap itself, corrupting subsequent WASM state and
+        // producing garbage geometry (this was confirmed to actually happen).
+        indices: Uint32Array.from(output_mesh.indices)
       }
 
       const transfer_list: ArrayBuffer[] = [
