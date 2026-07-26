@@ -2,6 +2,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
+import UvUnwrapWorkerConstructor from './UvUnwrapWorker.ts?worker'
 import type { UvUnwrapRequest, UvUnwrapResponse } from './UvUnwrapWorker.ts'
 
 /**
@@ -263,6 +264,11 @@ export class EmbeddedTexturePainter {
     if (response.status === 'error') {
       throw new Error(response.message)
     }
+    if (response.status === 'progress') {
+      // unreachable in practice - the worker promise only ever resolves on
+      // 'success' or 'error' - but keeps TypeScript's narrowing happy
+      throw new Error('Unexpected progress message reached response handling')
+    }
 
     geometry.setAttribute('position', new THREE.BufferAttribute(response.positions, 3))
     geometry.setAttribute('uv', new THREE.BufferAttribute(response.uvs, 2))
@@ -277,7 +283,9 @@ export class EmbeddedTexturePainter {
   }
 
   private async run_uv_unwrap_worker (request: UvUnwrapRequest, timeout_ms: number): Promise<UvUnwrapResponse> {
-    const worker = new Worker(new URL('./UvUnwrapWorker.ts', import.meta.url), { type: 'module' })
+    this.on_status(`DEBUG: creating worker (${request.positions.length / 3} verts, ${request.indices?.length ?? 'none'} indices)`)
+    const worker = new UvUnwrapWorkerConstructor()
+    this.on_status('DEBUG: worker constructed, posting message…')
 
     try {
       return await new Promise<UvUnwrapResponse>((resolve, reject) => {
@@ -286,13 +294,23 @@ export class EmbeddedTexturePainter {
         }, timeout_ms)
 
         worker.onmessage = (event: MessageEvent<UvUnwrapResponse>) => {
+          if (event.data.status === 'progress') {
+            this.on_status(`DEBUG: worker progress: ${event.data.message}`)
+            return
+          }
+          this.on_status(`DEBUG: worker responded with status=${event.data.status}`)
           window.clearTimeout(timeout_handle)
           resolve(event.data)
         }
 
         worker.onerror = (error: ErrorEvent) => {
+          this.on_status(`DEBUG: worker.onerror fired: ${error.message} (${error.filename}:${error.lineno})`)
           window.clearTimeout(timeout_handle)
           reject(new Error(error.message))
+        }
+
+        worker.onmessageerror = () => {
+          this.on_status('DEBUG: worker.onmessageerror fired (data could not be deserialized)')
         }
 
         const transfer_list: ArrayBuffer[] = [request.positions.buffer]
@@ -304,6 +322,7 @@ export class EmbeddedTexturePainter {
         }
 
         worker.postMessage(request, transfer_list)
+        this.on_status('DEBUG: message posted, waiting for response…')
       })
     } finally {
       worker.terminate()
