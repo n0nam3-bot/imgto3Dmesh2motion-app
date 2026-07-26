@@ -437,7 +437,13 @@ export class StepLoadModel extends EventTarget {
 
     const painter = new EmbeddedTexturePainter(this.ui.dom_paint_overlay_viewport)
     painter.set_status_callback((message) => {
-      if (this.ui.dom_paint_overlay_status !== null) {
+      if (this.ui.dom_paint_overlay_status === null) {
+        return
+      }
+      if (message.startsWith('DEBUG:')) {
+        const existing = this.ui.dom_paint_overlay_status.textContent ?? ''
+        this.ui.dom_paint_overlay_status.textContent = existing.length > 0 ? `${existing}\n${message}` : message
+      } else {
         this.ui.dom_paint_overlay_status.textContent = message
       }
     })
@@ -459,6 +465,9 @@ export class StepLoadModel extends EventTarget {
 
     painter.set_brush_color(this.ui.dom_paint_overlay_color?.value ?? '#c23b3b')
     painter.set_brush_size(Number(this.ui.dom_paint_overlay_size?.value ?? 24))
+    if (this.ui.dom_paint_overlay_status !== null) {
+      this.ui.dom_paint_overlay_status.textContent = ''
+    }
     painter.load_model_from_url(glb_url)
 
     // sizing reads correctly only once the container is actually visible
