@@ -110,24 +110,37 @@ export class EmbeddedTexturePainter {
   }
 
   public load_model_from_url (glb_url: string): void {
-    this.on_status('Loading model into paint view…')
+    this.on_status('DEBUG: starting GLTFLoader.load()…')
 
     this.gltf_loader.load(
       glb_url,
       (gltf) => {
-        if (this.loaded_scene !== null) {
-          this.scene.remove(this.loaded_scene)
-        }
-        this.loaded_scene = gltf.scene
-        this.scene.add(this.loaded_scene)
+        try {
+          if (this.loaded_scene !== null) {
+            this.scene.remove(this.loaded_scene)
+          }
+          this.loaded_scene = gltf.scene
+          this.scene.add(this.loaded_scene)
 
-        void this.setup_paintable_mesh()
-        this.frame_camera_to_object(this.loaded_scene)
+          let mesh_count = 0
+          this.loaded_scene.traverse((child) => {
+            if (child instanceof THREE.Mesh) {
+              mesh_count++
+            }
+          })
+          this.on_status(`DEBUG: GLTFLoader succeeded, ${mesh_count} mesh(es) found in scene`)
+
+          this.frame_camera_to_object(this.loaded_scene)
+          void this.setup_paintable_mesh()
+        } catch (error: unknown) {
+          const message = error instanceof Error ? (error.stack ?? error.message) : String(error)
+          this.on_status(`DEBUG: exception in onLoad callback: ${message}`)
+        }
       },
       undefined,
       (error: unknown) => {
         const message = error instanceof Error ? error.message : String(error)
-        this.on_status(`Failed to load model: ${message}`)
+        this.on_status(`DEBUG: GLTFLoader onError fired: ${message}`)
       }
     )
   }
