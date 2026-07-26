@@ -32,18 +32,32 @@ export interface UvUnwrapErrorResponse {
   message: string
 }
 
-export type UvUnwrapResponse = UvUnwrapSuccessResponse | UvUnwrapErrorResponse
+export interface UvUnwrapProgressResponse {
+  status: 'progress'
+  message: string
+}
+
+export type UvUnwrapResponse = UvUnwrapSuccessResponse | UvUnwrapErrorResponse | UvUnwrapProgressResponse
+
+function report_progress (message: string): void {
+  const response: UvUnwrapProgressResponse = { status: 'progress', message }
+  self.postMessage(response)
+}
 
 self.onmessage = (event: MessageEvent<UvUnwrapRequest>) => {
+  report_progress('worker received message')
   void run_unwrap(event.data)
 }
 
 async function run_unwrap (request: UvUnwrapRequest): Promise<void> {
   try {
+    report_progress('loading xatlas WASM module…')
     const xatlas = await createXAtlas()
+    report_progress('xatlas module ready, creating atlas…')
     const atlas = xatlas.createAtlas()
 
     try {
+      report_progress('calling addMesh…')
       const add_result = atlas.addMesh({
         positions: request.positions,
         indices: request.indices
@@ -53,10 +67,13 @@ async function run_unwrap (request: UvUnwrapRequest): Promise<void> {
         throw new Error(`xatlas addMesh failed: ${xatlas.addMeshErrorString(add_result)}`)
       }
 
+      report_progress('addMesh done, calling generate() - this is the expensive step…')
       atlas.generate()
+      report_progress('generate() done, reading output mesh…')
 
       const output_mesh = atlas.getMesh(0)
       const output_vertex_count = output_mesh.vertexCount
+      report_progress(`output mesh has ${output_vertex_count} vertices, rebuilding buffers…`)
 
       const has_normals = request.normals !== undefined
       const new_positions = new Float32Array(output_vertex_count * 3)
