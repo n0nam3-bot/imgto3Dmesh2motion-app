@@ -440,12 +440,8 @@ export class StepLoadModel extends EventTarget {
       if (this.ui.dom_paint_overlay_status === null) {
         return
       }
-      if (message.startsWith('DEBUG:')) {
-        const existing = this.ui.dom_paint_overlay_status.textContent ?? ''
-        this.ui.dom_paint_overlay_status.textContent = existing.length > 0 ? `${existing}\n${message}` : message
-      } else {
-        this.ui.dom_paint_overlay_status.textContent = message
-      }
+      const existing = this.ui.dom_paint_overlay_status.textContent ?? ''
+      this.ui.dom_paint_overlay_status.textContent = existing.length > 0 ? `${existing}\n${message}` : message
     })
     this.texture_painter = painter
     return painter
