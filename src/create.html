@@ -33,7 +33,6 @@
         <a href="%BASE_URL%">Explore</a>
         <span class="active-nav-item">Use Your Model</span>
         <a href="%BASE_URL%retarget/index.html">Use Your Rigged Model</a>
-        <a href="%BASE_URL%paint.html">Paint Texture</a>
       </div>
 
       <div style="display: inline-flex; align-items: center;">
@@ -134,11 +133,10 @@
               Powered by a free, open-source AI model. Generation can take 30s-2min and quality varies by image.
             </p>
             <div id="generate-from-image-actions" style="display: none; flex-direction: column; gap: 0.5rem; margin-top: 0.5rem;">
-              <p style="margin: 0; font-size: 0.85rem;">Model ready. Download it, paint it, or continue to rigging.</p>
+              <p style="margin: 0; font-size: 0.85rem;">Model ready. Download it or continue to rigging.</p>
               <a id="generate-from-image-download" class="button" download="generated-model.glb" style="text-align: center; text-decoration: none;">
                 Download Model
               </a>
-              <button id="generate-from-image-paint-button">Paint Texture</button>
               <button id="generate-from-image-continue-button">Continue to Rigging →</button>
             </div>
           </div>
@@ -599,30 +597,5 @@
 
     <!-- build version information-->
     <span id="build-version"></span>
-    <div id="paint-overlay" class="modal-dialog-overlay" style="display: none; background: rgba(0,0,0,0.92);">
-      <div class="modal-dialog-content" style="max-width: 95%; width: 900px; padding: 1rem;">
-        <h2 style="margin-bottom: 0.5rem;">Paint Texture</h2>
-        <div style="display: flex; gap: 1rem; flex-wrap: wrap;">
-          <div id="paint-overlay-viewport" style="flex: 1 1 400px; height: 400px; background: #1a1a1a; border-radius: 4px; overflow: hidden; min-width: 280px;"></div>
-          <div style="flex: 0 0 180px; display: flex; flex-direction: column; gap: 0.5rem;">
-            <label for="paint-overlay-color" style="font-size: 0.85rem;">
-              Brush color
-              <input id="paint-overlay-color" type="color" value="#c23b3b" style="vertical-align: middle; margin-left: 0.4rem;" />
-            </label>
-            <label for="paint-overlay-size" style="font-size: 0.85rem;">
-              Brush size: <span id="paint-overlay-size-value">24</span>px
-              <input id="paint-overlay-size" type="range" min="2" max="120" value="24" style="width: 100%; display: block; margin-top: 0.25rem;" />
-            </label>
-            <button id="paint-overlay-undo">Undo Stroke</button>
-            <button id="paint-overlay-clear">Clear to Color</button>
-          </div>
-        </div>
-        <p id="paint-overlay-status" style="margin: 0.5rem 0; font-size: 0.8rem; opacity: 0.85; text-align: left; white-space: pre-line;"></p>
-        <div style="display: flex; gap: 0.5rem; justify-content: center; margin-top: 0.5rem;">
-          <button id="paint-overlay-cancel">Cancel</button>
-          <button id="paint-overlay-save">Save Painted Version</button>
-        </div>
-      </div>
-    </div>
   </body>
 </html>
