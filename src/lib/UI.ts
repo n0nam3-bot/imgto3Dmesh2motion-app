@@ -18,19 +18,7 @@ export class UI {
 
   dom_generate_from_image_actions: HTMLElement | null = null
   dom_generate_from_image_download: HTMLAnchorElement | null = null
-  dom_generate_from_image_paint_button: HTMLButtonElement | null = null
   dom_generate_from_image_continue_button: HTMLButtonElement | null = null
-
-  dom_paint_overlay: HTMLElement | null = null
-  dom_paint_overlay_viewport: HTMLElement | null = null
-  dom_paint_overlay_color: HTMLInputElement | null = null
-  dom_paint_overlay_size: HTMLInputElement | null = null
-  dom_paint_overlay_size_value: HTMLElement | null = null
-  dom_paint_overlay_undo: HTMLButtonElement | null = null
-  dom_paint_overlay_clear: HTMLButtonElement | null = null
-  dom_paint_overlay_status: HTMLElement | null = null
-  dom_paint_overlay_cancel: HTMLButtonElement | null = null
-  dom_paint_overlay_save: HTMLButtonElement | null = null
 
   // toggle for showing/hiding skeleton in the 3D view
   dom_show_skeleton_container: HTMLElement | null = null
@@ -170,19 +158,7 @@ export class UI {
 
     this.dom_generate_from_image_actions = document.querySelector('#generate-from-image-actions')
     this.dom_generate_from_image_download = document.querySelector('#generate-from-image-download')
-    this.dom_generate_from_image_paint_button = document.querySelector('#generate-from-image-paint-button')
     this.dom_generate_from_image_continue_button = document.querySelector('#generate-from-image-continue-button')
-
-    this.dom_paint_overlay = document.querySelector('#paint-overlay')
-    this.dom_paint_overlay_viewport = document.querySelector('#paint-overlay-viewport')
-    this.dom_paint_overlay_color = document.querySelector('#paint-overlay-color')
-    this.dom_paint_overlay_size = document.querySelector('#paint-overlay-size')
-    this.dom_paint_overlay_size_value = document.querySelector('#paint-overlay-size-value')
-    this.dom_paint_overlay_undo = document.querySelector('#paint-overlay-undo')
-    this.dom_paint_overlay_clear = document.querySelector('#paint-overlay-clear')
-    this.dom_paint_overlay_status = document.querySelector('#paint-overlay-status')
-    this.dom_paint_overlay_cancel = document.querySelector('#paint-overlay-cancel')
-    this.dom_paint_overlay_save = document.querySelector('#paint-overlay-save')
 
     // UI controls with load skeleton step
     this.dom_rotate_model_x_button = document.querySelector('#rotate-model-x-button')
