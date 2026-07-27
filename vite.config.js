@@ -30,8 +30,7 @@ export default defineConfig({
         input: {
           main: resolve(__dirname, 'src/index.html'),
           create: resolve(__dirname, 'src/create.html'),
-          retarget: resolve(__dirname, 'src/retarget/index.html'),
-          paint: resolve(__dirname, 'src/paint.html')
+          retarget: resolve(__dirname, 'src/retarget/index.html')
         }
       }
     },
