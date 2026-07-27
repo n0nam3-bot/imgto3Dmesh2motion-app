@@ -1,19 +1,31 @@
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
-import { SimplifyModifier } from 'three/examples/jsm/modifiers/SimplifyModifier.js'
-import { Mesh, type BufferGeometry } from 'three'
+import { Mesh, BufferAttribute, type BufferGeometry } from 'three'
+import SimplifyWorkerConstructor from './SimplifyWorker.ts?worker'
+import type { SimplifyRequest, SimplifyResponse } from './SimplifyWorker.ts'
 
 /**
- * Reduces the polygon count of a GLB model entirely client-side, using
- * three.js's own SimplifyModifier. Intended to run on freshly-generated
- * (image-to-3D) meshes BEFORE the skeleton-fitting step, since the
- * modifier does not understand skin weights - it should only ever touch
- * un-rigged geometry.
+ * Reduces the polygon count of a GLB model entirely client-side.
+ *
+ * Runs meshoptimizer inside a Web Worker (see SimplifyWorker.ts) rather
+ * than on the main thread - confirmed in practice that simplifying a very
+ * dense (~1M triangle) AI-generated mesh directly on the main thread can
+ * freeze the page for many seconds with no feedback, even though
+ * meshoptimizer itself is fast relative to alternatives.
+ *
+ * Intended to run on freshly-generated (image-to-3D) meshes BEFORE the
+ * skeleton-fitting step, since simplification does not understand skin
+ * weights - it should only ever touch un-rigged geometry.
  */
 export class MeshFaceReducer {
   private readonly gltf_loader = new GLTFLoader()
   private readonly gltf_exporter = new GLTFExporter()
-  private readonly simplify_modifier = new SimplifyModifier()
+
+  private on_progress: (message: string) => void = () => {}
+
+  public set_progress_callback (callback: (message: string) => void): void {
+    this.on_progress = callback
+  }
 
   /**
    * Loads the GLB at glb_url, reduces every mesh in it toward
@@ -41,24 +53,12 @@ export class MeshFaceReducer {
 
     const reduction_ratio = target_face_count / total_faces_before
 
-    for (const mesh of meshes) {
-      const current_faces = this.count_faces(mesh.geometry)
-      if (current_faces <= 4) {
-        continue // too small to usefully simplify
-      }
-
-      const mesh_target_faces = Math.max(4, Math.round(current_faces * reduction_ratio))
-      const current_vertices = mesh.geometry.attributes.position.count
-      // faces:vertices is roughly 2:1 for a closed triangle mesh (Euler's formula),
-      // so approximate the target vertex count the same way
-      const target_vertices = Math.max(4, Math.round(mesh_target_faces / 2))
-      const vertices_to_remove = Math.max(0, current_vertices - target_vertices)
-
-      if (vertices_to_remove > 0) {
-        mesh.geometry = this.simplify_modifier.modify(mesh.geometry, vertices_to_remove)
-      }
+    for (let i = 0; i < meshes.length; i++) {
+      this.on_progress(`Reducing mesh ${i + 1} of ${meshes.length}…`)
+      await this.simplify_mesh(meshes[i], reduction_ratio)
     }
 
+    this.on_progress('Exporting reduced model…')
     const exported_buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
       this.gltf_exporter.parse(
         scene,
@@ -77,6 +77,70 @@ export class MeshFaceReducer {
     })
 
     return URL.createObjectURL(new Blob([exported_buffer], { type: 'model/gltf-binary' }))
+  }
+
+  private async simplify_mesh (mesh: Mesh, reduction_ratio: number): Promise<void> {
+    const geometry = mesh.geometry
+    const position_attribute = geometry.attributes.position
+    if (position_attribute === undefined) {
+      return
+    }
+
+    const current_faces = this.count_faces(geometry)
+    if (current_faces <= 4) {
+      return // too small to usefully simplify
+    }
+
+    const target_index_count = Math.max(12, Math.round(current_faces * reduction_ratio) * 3)
+
+    const existing_index = geometry.getIndex()
+    const indices = existing_index !== null
+      ? Uint32Array.from(existing_index.array)
+      : Uint32Array.from({ length: position_attribute.count }, (_, i) => i) // non-indexed: 0,1,2,3...
+
+    const positions = position_attribute.array instanceof Float32Array
+      ? position_attribute.array.slice()
+      : Float32Array.from(position_attribute.array)
+
+    const request: SimplifyRequest = { positions, indices, target_index_count }
+    const response = await this.run_simplify_worker(request, 60_000)
+
+    if (response.status === 'error') {
+      throw new Error(response.message)
+    }
+
+    if (response.indices.length < 3) {
+      return // simplification failed to produce a usable mesh, leave as-is
+    }
+
+    geometry.setIndex(new BufferAttribute(response.indices, 1))
+  }
+
+  private async run_simplify_worker (request: SimplifyRequest, timeout_ms: number): Promise<SimplifyResponse> {
+    const worker = new SimplifyWorkerConstructor()
+
+    try {
+      return await new Promise<SimplifyResponse>((resolve, reject) => {
+        const timeout_handle = window.setTimeout(() => {
+          reject(new Error(`Face reduction timed out after ${Math.round(timeout_ms / 1000)}s.`))
+        }, timeout_ms)
+
+        worker.onmessage = (event: MessageEvent<SimplifyResponse>) => {
+          window.clearTimeout(timeout_handle)
+          resolve(event.data)
+        }
+
+        worker.onerror = (error: ErrorEvent) => {
+          window.clearTimeout(timeout_handle)
+          reject(new Error(error.message))
+        }
+
+        const transfer_list: ArrayBuffer[] = [request.positions.buffer, request.indices.buffer]
+        worker.postMessage(request, transfer_list)
+      })
+    } finally {
+      worker.terminate()
+    }
   }
 
   private count_faces (geometry: BufferGeometry): number {
