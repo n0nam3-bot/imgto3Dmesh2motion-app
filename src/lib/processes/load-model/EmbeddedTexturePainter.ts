@@ -64,6 +64,15 @@ export class EmbeddedTexturePainter {
     this.controls = new OrbitControls(this.camera, this.renderer.domElement)
     this.controls.enableDamping = true
 
+    // explicit background so "nothing is rendering" is visually distinct
+    // from "the model itself is dark/underlit"
+    this.scene.background = new THREE.Color(0x2a2a2a)
+
+    // hemisphere light gives even illumination regardless of the mesh's
+    // orientation, so it's never fully dark from any angle
+    const hemisphere_light = new THREE.HemisphereLight(0xffffff, 0x444444, 2.2)
+    this.scene.add(hemisphere_light)
+
     const ambient_light = new THREE.AmbientLight(0xffffff, 1.3)
     this.scene.add(ambient_light)
     const directional_light = new THREE.DirectionalLight(0xffffff, 1.6)
@@ -379,8 +388,28 @@ export class EmbeddedTexturePainter {
     const center = new THREE.Vector3()
     bounding_box.getCenter(center)
 
+    const has_valid_bounds = Number.isFinite(size.x) && Number.isFinite(size.y) && Number.isFinite(size.z) &&
+      Number.isFinite(center.x) && Number.isFinite(center.y) && Number.isFinite(center.z) &&
+      (size.x + size.y + size.z) > 0
+
+    if (!has_valid_bounds) {
+      // degenerate/NaN bounds (shouldn't normally happen, but a bad camera
+      // position from this would render nothing at all with no error) -
+      // fall back to a sane default framing instead
+      this.on_status('DEBUG: bounding box was invalid, using fallback camera position')
+      this.camera.position.set(0, 1.4, 3)
+      this.camera.near = 0.01
+      this.camera.far = 1000
+      this.camera.updateProjectionMatrix()
+      this.controls.target.set(0, 1, 0)
+      this.controls.update()
+      return
+    }
+
     const max_dimension = Math.max(size.x, size.y, size.z, 0.01)
-    const distance = max_dimension * 1.8
+    // extra padding (2.6x vs the previous 1.8x) so dense/large meshes are
+    // more reliably framed fully in view on first load
+    const distance = max_dimension * 2.6
 
     this.camera.position.set(center.x, center.y + size.y * 0.15, center.z + distance)
     this.camera.near = distance / 100
