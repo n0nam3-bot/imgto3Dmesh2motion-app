@@ -13,7 +13,7 @@ import { ModelCleanupUtility } from './ModelCleanupUtility.ts'
 import { PlatformUtils } from '../../PlatformUtils.ts'
 import { ImageTo3DGenerator } from './ImageTo3DGenerator.ts'
 import { MeshFaceReducer } from './MeshFaceReducer.ts'
-import { EmbeddedTexturePainter } from './EmbeddedTexturePainter.ts'
+import { UvEnsurer } from './UvEnsurer.ts'
 
 // Note: EventTarget is a built-ininterface and do not need to import it
 export class StepLoadModel extends EventTarget {
@@ -39,10 +39,9 @@ export class StepLoadModel extends EventTarget {
   // will mess up model and need to just replace the entire material
   private mesh_has_broken_material: boolean = false
 
-  // holds the most recently generated (and possibly painted) image-to-3D
-  // result, waiting for the user to download / paint / continue with it
+  // holds the most recently generated image-to-3D result, waiting for the
+  // user to download / continue with it
   private generated_model_url: string | null = null
-  private texture_painter: EmbeddedTexturePainter | null = null
 
   // controls whether to preserve all objects (bones, lights, etc.) or strip to meshes only
   private preserve_skinned_mesh: boolean = false
@@ -289,10 +288,16 @@ export class StepLoadModel extends EventTarget {
 
             let final_glb_url = glb_blob_url
             if (!isNaN(target_face_count) && target_face_count > 0) {
-              set_status('Reducing face count…')
               const reducer = new MeshFaceReducer()
+              reducer.set_progress_callback(set_status)
+              set_status('Reducing face count…')
               final_glb_url = await reducer.reduce_glb_face_count(glb_blob_url, target_face_count)
             }
+
+            const uv_ensurer = new UvEnsurer()
+            uv_ensurer.set_progress_callback(set_status)
+            set_status('Checking UV coordinates…')
+            final_glb_url = await uv_ensurer.ensure_uvs(final_glb_url)
 
             stop_elapsed_timer()
             set_status('Model generated!')
@@ -311,7 +316,6 @@ export class StepLoadModel extends EventTarget {
     }
 
     this.setup_generated_model_actions()
-    this.setup_paint_overlay()
 
     if (this.ui.dom_load_model_debug_checkbox !== null) {
       this.ui.dom_load_model_debug_checkbox.addEventListener('change', (event: Event) => {
@@ -392,10 +396,6 @@ export class StepLoadModel extends EventTarget {
   }
 
   private set_generated_model_url (glb_url: string): void {
-    // revoke the previous blob url (if any) so we don't leak memory across
-    // repeated generate/paint cycles - but only if it's not still referenced
-    // elsewhere (the painter loads its own copy, so this is safe to revoke
-    // once a new result replaces it)
     this.generated_model_url = glb_url
 
     if (this.ui.dom_generate_from_image_actions !== null) {
@@ -407,15 +407,6 @@ export class StepLoadModel extends EventTarget {
   }
 
   private setup_generated_model_actions (): void {
-    if (this.ui.dom_generate_from_image_paint_button !== null) {
-      this.ui.dom_generate_from_image_paint_button.addEventListener('click', () => {
-        if (this.generated_model_url === null) {
-          return
-        }
-        this.open_paint_overlay(this.generated_model_url)
-      })
-    }
-
     if (this.ui.dom_generate_from_image_continue_button !== null) {
       this.ui.dom_generate_from_image_continue_button.addEventListener('click', () => {
         if (this.generated_model_url === null) {
@@ -425,112 +416,6 @@ export class StepLoadModel extends EventTarget {
         this.load_model_file(this.generated_model_url, 'glb')
       })
     }
-  }
-
-  private get_or_create_texture_painter (): EmbeddedTexturePainter | null {
-    if (this.texture_painter !== null) {
-      return this.texture_painter
-    }
-    if (this.ui.dom_paint_overlay_viewport === null) {
-      return null
-    }
-
-    const painter = new EmbeddedTexturePainter(this.ui.dom_paint_overlay_viewport)
-    painter.set_status_callback((message) => {
-      if (this.ui.dom_paint_overlay_status === null) {
-        return
-      }
-      const existing = this.ui.dom_paint_overlay_status.textContent ?? ''
-      this.ui.dom_paint_overlay_status.textContent = existing.length > 0 ? `${existing}\n${message}` : message
-    })
-    this.texture_painter = painter
-    return painter
-  }
-
-  private open_paint_overlay (glb_url: string): void {
-    if (this.ui.dom_paint_overlay === null) {
-      return
-    }
-
-    this.ui.dom_paint_overlay.style.display = 'flex'
-
-    const painter = this.get_or_create_texture_painter()
-    if (painter === null) {
-      return
-    }
-
-    painter.set_brush_color(this.ui.dom_paint_overlay_color?.value ?? '#c23b3b')
-    painter.set_brush_size(Number(this.ui.dom_paint_overlay_size?.value ?? 24))
-    if (this.ui.dom_paint_overlay_status !== null) {
-      this.ui.dom_paint_overlay_status.textContent = ''
-    }
-    painter.load_model_from_url(glb_url)
-
-    // sizing reads correctly only once the container is actually visible
-    window.requestAnimationFrame(() => {
-      painter.handle_resize()
-      painter.start_render_loop()
-    })
-  }
-
-  private close_paint_overlay (): void {
-    if (this.ui.dom_paint_overlay !== null) {
-      this.ui.dom_paint_overlay.style.display = 'none'
-    }
-    this.texture_painter?.stop_render_loop()
-  }
-
-  private setup_paint_overlay (): void {
-    this.ui.dom_paint_overlay_color?.addEventListener('input', () => {
-      this.texture_painter?.set_brush_color(this.ui.dom_paint_overlay_color?.value ?? '#c23b3b')
-    })
-
-    this.ui.dom_paint_overlay_size?.addEventListener('input', () => {
-      const size_value = Number(this.ui.dom_paint_overlay_size?.value ?? 24)
-      this.texture_painter?.set_brush_size(size_value)
-      if (this.ui.dom_paint_overlay_size_value !== null) {
-        this.ui.dom_paint_overlay_size_value.textContent = String(size_value)
-      }
-    })
-
-    this.ui.dom_paint_overlay_undo?.addEventListener('click', () => {
-      this.texture_painter?.undo()
-    })
-
-    this.ui.dom_paint_overlay_clear?.addEventListener('click', () => {
-      const clear_color = this.ui.dom_paint_overlay_color?.value ?? '#c9c9c9'
-      this.texture_painter?.clear_to_color(clear_color)
-    })
-
-    this.ui.dom_paint_overlay_cancel?.addEventListener('click', () => {
-      this.close_paint_overlay()
-    })
-
-    this.ui.dom_paint_overlay_save?.addEventListener('click', () => {
-      const painter = this.texture_painter
-      if (painter === null) {
-        return
-      }
-
-      painter.export_glb_blob_url()
-        .then((painted_glb_url: string) => {
-          this.set_generated_model_url(painted_glb_url)
-          this.close_paint_overlay()
-        })
-        .catch((error: unknown) => {
-          const message = error instanceof Error ? error.message : String(error)
-          if (this.ui.dom_paint_overlay_status !== null) {
-            this.ui.dom_paint_overlay_status.textContent = `Save failed: ${message}`
-          }
-        })
-    })
-
-    // clicking the dark backdrop (not the panel itself) also closes it
-    this.ui.dom_paint_overlay?.addEventListener('click', (event: Event) => {
-      if (event.target === this.ui.dom_paint_overlay) {
-        this.close_paint_overlay()
-      }
-    })
   }
 
   public load_model_file (model_file_path: string | ArrayBuffer | null, file_extension: string): void {
