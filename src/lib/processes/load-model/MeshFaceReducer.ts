@@ -114,6 +114,12 @@ export class MeshFaceReducer {
     }
 
     geometry.setIndex(new BufferAttribute(response.indices, 1))
+    // the old per-vertex normals were computed for the ORIGINAL triangle
+    // topology - after simplification, the same vertices belong to
+    // different neighboring faces, so stale normals point the wrong way
+    // and can make large areas render as if facing away from every light
+    // (exactly the "gray, blotchy, featureless" look this was producing)
+    geometry.computeVertexNormals()
   }
 
   private async run_simplify_worker (request: SimplifyRequest, timeout_ms: number): Promise<SimplifyResponse> {
