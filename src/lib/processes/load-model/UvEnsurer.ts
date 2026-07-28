@@ -3,6 +3,14 @@ import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
 import * as THREE from 'three'
 import UvUnwrapWorkerConstructor from './UvUnwrapWorker.ts?worker'
 import type { UvUnwrapRequest, UvUnwrapResponse } from './UvUnwrapWorker.ts'
+import SimplifyWorkerConstructor from './SimplifyWorker.ts?worker'
+import type { SimplifyRequest, SimplifyResponse } from './SimplifyWorker.ts'
+
+// xatlas unwrapping time grows steeply with triangle count - meshes denser
+// than this get pre-reduced (for the purpose of unwrapping ONLY) so the
+// unwrap step stays reliably fast, regardless of the user's own face-count
+// preference (which is applied separately, before this step ever runs)
+const MAX_FACES_BEFORE_UNWRAP = 40_000
 
 /**
  * Automatically checks a GLB for UV coordinates and generates them (via
@@ -45,8 +53,19 @@ export class UvEnsurer {
     }
 
     for (let i = 0; i < meshes_missing_uvs.length; i++) {
+      const mesh = meshes_missing_uvs[i]
+      const face_count = this.count_faces(mesh.geometry)
+
+      if (face_count > MAX_FACES_BEFORE_UNWRAP) {
+        this.on_progress(
+          `Mesh ${i + 1} of ${meshes_missing_uvs.length} is very dense (${face_count} faces) - ` +
+          `reducing to ~${MAX_FACES_BEFORE_UNWRAP} faces so UV unwrapping stays fast…`
+        )
+        await this.simplify_for_unwrap(mesh, MAX_FACES_BEFORE_UNWRAP)
+      }
+
       this.on_progress(`Generating UVs for mesh ${i + 1} of ${meshes_missing_uvs.length}…`)
-      await this.generate_real_uvs(meshes_missing_uvs[i].geometry)
+      await this.generate_real_uvs(mesh.geometry)
     }
 
     this.on_progress('Exporting model with generated UVs…')
@@ -68,6 +87,80 @@ export class UvEnsurer {
     })
 
     return URL.createObjectURL(new Blob([exported_buffer], { type: 'model/gltf-binary' }))
+  }
+
+  private count_faces (geometry: THREE.BufferGeometry): number {
+    const index = geometry.getIndex()
+    const vertex_count = index !== null ? index.count : geometry.attributes.position.count
+    return Math.floor(vertex_count / 3)
+  }
+
+  /**
+   * Reduces a mesh toward target_face_count using meshoptimizer (in a
+   * worker), purely to keep the UV unwrap step tractable on very dense
+   * meshes. This is separate from - and unrelated to - the user's own
+   * face-count preference from MeshFaceReducer.
+   */
+  private async simplify_for_unwrap (mesh: THREE.Mesh, target_face_count: number): Promise<void> {
+    const geometry = mesh.geometry
+    const position_attribute = geometry.attributes.position
+    const current_faces = this.count_faces(geometry)
+    if (position_attribute === undefined || current_faces <= target_face_count) {
+      return
+    }
+
+    const target_index_count = Math.max(12, target_face_count * 3)
+
+    const existing_index = geometry.getIndex()
+    const indices = existing_index !== null
+      ? Uint32Array.from(existing_index.array)
+      : Uint32Array.from({ length: position_attribute.count }, (_, i) => i)
+
+    const positions = position_attribute.array instanceof Float32Array
+      ? position_attribute.array.slice()
+      : Float32Array.from(position_attribute.array)
+
+    const request: SimplifyRequest = { positions, indices, target_index_count }
+    const response = await this.run_simplify_worker(request, 60_000)
+
+    if (response.status === 'error') {
+      throw new Error(response.message)
+    }
+    if (response.indices.length < 3) {
+      return
+    }
+
+    geometry.setIndex(new THREE.BufferAttribute(response.indices, 1))
+    // topology changed significantly - stale normals would cause the
+    // same "gray/blotchy" look fixed in MeshFaceReducer
+    geometry.computeVertexNormals()
+  }
+
+  private async run_simplify_worker (request: SimplifyRequest, timeout_ms: number): Promise<SimplifyResponse> {
+    const worker = new SimplifyWorkerConstructor()
+
+    try {
+      return await new Promise<SimplifyResponse>((resolve, reject) => {
+        const timeout_handle = window.setTimeout(() => {
+          reject(new Error(`Pre-unwrap simplification timed out after ${Math.round(timeout_ms / 1000)}s.`))
+        }, timeout_ms)
+
+        worker.onmessage = (event: MessageEvent<SimplifyResponse>) => {
+          window.clearTimeout(timeout_handle)
+          resolve(event.data)
+        }
+
+        worker.onerror = (error: ErrorEvent) => {
+          window.clearTimeout(timeout_handle)
+          reject(new Error(error.message))
+        }
+
+        const transfer_list: ArrayBuffer[] = [request.positions.buffer, request.indices.buffer]
+        worker.postMessage(request, transfer_list)
+      })
+    } finally {
+      worker.terminate()
+    }
   }
 
   /**
@@ -101,7 +194,10 @@ export class UvEnsurer {
       : undefined
 
     const request: UvUnwrapRequest = { positions, indices, normals }
-    const response = await this.run_uv_unwrap_worker(request, 60_000)
+    // 120s - generous since a worker running long doesn't freeze the page,
+    // and the MAX_FACES_BEFORE_UNWRAP cap above should keep this well
+    // within that in practice
+    const response = await this.run_uv_unwrap_worker(request, 120_000)
 
     if (response.status === 'error') {
       throw new Error(response.message)
