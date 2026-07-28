@@ -175,10 +175,10 @@ export class AnimationPlayer {
     if (icon !== null) {
       // swap the img src based on play/pause state
       if (this.is_playing || this.was_playing_before_user_scrubbed) {
-        icon.src = '../images/icons/pause.svg'
+        icon.src = `${import.meta.env.BASE_URL}images/icons/pause.svg`
         icon.alt = 'Pause'
       } else {
-        icon.src = '../images/icons/play.svg'
+        icon.src = `${import.meta.env.BASE_URL}images/icons/play.svg`
         icon.alt = 'Play'
       }
     }
