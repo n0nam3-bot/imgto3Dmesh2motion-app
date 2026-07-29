@@ -448,9 +448,14 @@ export class StepLoadModel extends EventTarget {
       const apply_button = this.ui.dom_apply_texture_button as HTMLButtonElement
       const status_element = this.ui.dom_apply_texture_status
       const set_status = (message: string): void => {
-        if (status_element !== null) {
-          status_element.textContent = message
+        if (status_element === null) {
+          return
         }
+        const existing = status_element.textContent ?? ''
+        status_element.textContent = existing.length > 0 ? `${existing}\n${message}` : message
+      }
+      if (status_element !== null) {
+        status_element.textContent = ''
       }
 
       if (chosen_image_file === undefined) {
