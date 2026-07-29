@@ -14,6 +14,7 @@ import { PlatformUtils } from '../../PlatformUtils.ts'
 import { ImageTo3DGenerator } from './ImageTo3DGenerator.ts'
 import { MeshFaceReducer } from './MeshFaceReducer.ts'
 import { UvEnsurer } from './UvEnsurer.ts'
+import { TextureApplier } from './TextureApplier.ts'
 
 // Note: EventTarget is a built-ininterface and do not need to import it
 export class StepLoadModel extends EventTarget {
@@ -316,6 +317,7 @@ export class StepLoadModel extends EventTarget {
     }
 
     this.setup_generated_model_actions()
+    this.setup_apply_texture_section()
 
     if (this.ui.dom_load_model_debug_checkbox !== null) {
       this.ui.dom_load_model_debug_checkbox.addEventListener('change', (event: Event) => {
@@ -404,6 +406,98 @@ export class StepLoadModel extends EventTarget {
     if (this.ui.dom_generate_from_image_download !== null) {
       this.ui.dom_generate_from_image_download.href = glb_url
     }
+  }
+
+  private setup_apply_texture_section (): void {
+    let chosen_model_file: File | undefined
+    let chosen_image_file: File | undefined
+
+    this.ui.dom_apply_texture_model_input?.addEventListener('change', () => {
+      chosen_model_file = this.ui.dom_apply_texture_model_input?.files?.[0]
+      if (this.ui.dom_apply_texture_model_filename !== null) {
+        this.ui.dom_apply_texture_model_filename.textContent = chosen_model_file !== undefined
+          ? chosen_model_file.name
+          : 'No model chosen'
+      }
+    })
+
+    this.ui.dom_apply_texture_image_input?.addEventListener('change', () => {
+      chosen_image_file = this.ui.dom_apply_texture_image_input?.files?.[0]
+      if (this.ui.dom_apply_texture_image_filename !== null) {
+        this.ui.dom_apply_texture_image_filename.textContent = chosen_image_file !== undefined
+          ? chosen_image_file.name
+          : 'No image chosen'
+      }
+
+      const preview_element = this.ui.dom_apply_texture_image_preview
+      if (preview_element !== null) {
+        if (preview_element.src.startsWith('blob:')) {
+          URL.revokeObjectURL(preview_element.src)
+        }
+        if (chosen_image_file !== undefined) {
+          preview_element.src = URL.createObjectURL(chosen_image_file)
+          preview_element.style.display = 'block'
+        } else {
+          preview_element.removeAttribute('src')
+          preview_element.style.display = 'none'
+        }
+      }
+    })
+
+    this.ui.dom_apply_texture_button?.addEventListener('click', () => {
+      const apply_button = this.ui.dom_apply_texture_button as HTMLButtonElement
+      const status_element = this.ui.dom_apply_texture_status
+      const set_status = (message: string): void => {
+        if (status_element !== null) {
+          status_element.textContent = message
+        }
+      }
+
+      if (chosen_image_file === undefined) {
+        new ModalDialog('No image selected', 'Choose a texture image first.').show()
+        return
+      }
+
+      // convenience: if no model file was explicitly chosen, fall back to
+      // whatever was most recently generated in this session, if any
+      const use_generated_fallback = chosen_model_file === undefined && this.generated_model_url !== null
+
+      if (chosen_model_file === undefined && this.generated_model_url === null) {
+        new ModalDialog(
+          'No model selected',
+          'Choose a .glb file first, or generate a model above.'
+        ).show()
+        return
+      }
+
+      const model_source: Promise<string> = use_generated_fallback
+        ? Promise.resolve(this.generated_model_url as string)
+        : Promise.resolve(URL.createObjectURL(chosen_model_file as File))
+
+      apply_button.disabled = true
+      set_status('Starting…')
+
+      const applier = new TextureApplier()
+      applier.set_progress_callback(set_status)
+
+      model_source
+        .then(async (model_url) => await applier.apply_texture(model_url, chosen_image_file as File))
+        .then((textured_glb_url: string) => {
+          set_status('Textured model ready.')
+          if (this.ui.dom_apply_texture_download !== null) {
+            this.ui.dom_apply_texture_download.href = textured_glb_url
+            this.ui.dom_apply_texture_download.style.display = 'inline-block'
+          }
+          apply_button.disabled = false
+        })
+        .catch((error: unknown) => {
+          console.error('Applying texture failed', error)
+          const message = error instanceof Error ? error.message : String(error)
+          set_status('')
+          new ModalDialog('Applying texture failed', message).show()
+          apply_button.disabled = false
+        })
+    })
   }
 
   private setup_generated_model_actions (): void {
