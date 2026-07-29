@@ -27,7 +27,8 @@
 
     <nav>
       <div style="display: inline-flex; align-items: center">
-        <a id="logo-branding" href="https://mesh2motion.org"
+        <a id="logo-branding" href="%BASE_URL%" style="display: inline-flex; align-items: center; gap: 0.4rem;"
+          ><span style="font-weight: bold; font-size: 1.1rem; letter-spacing: 0.02em;">imgto3d</span
           ><img src="./images/mesh2motion.svg" width="130" alt="Mesh2Motion logo"
         /></a>
         <a href="%BASE_URL%">Explore</a>
@@ -153,6 +154,42 @@
               <option value="models/model-kaiju.glb">Kaiju</option>
             </select>
             <button id="load-model-button">Load</button>
+          </div>
+
+          <div style="text-align: center; font-size: 1.5rem">or</div>
+
+          <div class="alternate-background-section">
+            <p style="margin: 0">Apply texture from image</p>
+            <p style="margin: 0.25rem 0 0.5rem; font-size: 0.7rem; opacity: 0.6;">
+              Takes any model (uploaded or generated above) and any image,
+              and wraps that image directly onto the model's surface as
+              its texture.
+            </p>
+
+            <label for="apply-texture-model-input" class="button">
+              <span class="button-icon-group">
+                <img src="images/icons/upload.svg" alt="Choose model" width="16" height="16" />
+                <span>Choose Model (.glb)</span>
+              </span>
+            </label>
+            <input id="apply-texture-model-input" type="file" accept=".glb" />
+            <p id="apply-texture-model-filename" style="margin: 0.25rem 0 0; font-size: 0.85rem; opacity: 0.8;">No model chosen</p>
+
+            <label for="apply-texture-image-input" class="button">
+              <span class="button-icon-group">
+                <img src="images/icons/upload.svg" alt="Choose image" width="16" height="16" />
+                <span>Choose Texture Image</span>
+              </span>
+            </label>
+            <input id="apply-texture-image-input" type="file" accept="image/png, image/jpeg, image/webp" />
+            <p id="apply-texture-image-filename" style="margin: 0.25rem 0 0; font-size: 0.85rem; opacity: 0.8;">No image chosen</p>
+            <img id="apply-texture-image-preview" alt="Texture preview" style="display: none; max-width: 100%; max-height: 160px; margin-top: 0.4rem; border-radius: 4px; object-fit: contain; align-self: flex-start;" />
+
+            <button id="apply-texture-button">Apply Texture</button>
+            <p id="apply-texture-status" style="margin: 0.25rem 0 0; font-size: 0.85rem; opacity: 0.8;"></p>
+            <a id="apply-texture-download" class="button" download="textured-model.glb" style="display: none; text-align: center; text-decoration: none; margin-top: 0.5rem;">
+              Download Textured Model
+            </a>
           </div>
 
           <div class="styled-checkbox">
