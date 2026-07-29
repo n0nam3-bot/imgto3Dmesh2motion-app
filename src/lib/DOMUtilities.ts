@@ -56,7 +56,7 @@ export class DOMUtilities {
 
     mount.innerHTML = `
       <a href="#" id="learn-link">Learn</a>
-      <a href="#" id="attribution-link">Contributors</a>
+      <a href="#" id="attribution-link" title="Contributors" aria-label="Contributors" style="font-weight: bold; padding: 0 0.4rem;">?</a>
       <a href="${nav_links.support_href}" id="nav-support-mesh2motion" target="_blank">💗</a>
       <a href="${nav_links.github_href}" id="nav-github" target="_blank">
         <img src="${nav_links.github_icon_src}" width="24" height="24" alt="GitHub" />
