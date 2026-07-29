@@ -89,7 +89,7 @@ export class ModelVariationSwitcher extends EventTarget {
 
     // update image properties
     if (this.dom_info_image !== null) {
-      this.dom_info_image.src = '../' + this.confirmed_variation.preview_image
+      this.dom_info_image.src = import.meta.env.BASE_URL + this.confirmed_variation.preview_image
       this.dom_info_image.alt = this.confirmed_variation.display_name
       this.dom_info_image.style.display = ''
     }
@@ -146,7 +146,7 @@ export class ModelVariationSwitcher extends EventTarget {
       card.className = 'variation-card'
 
       const img = document.createElement('img')
-      img.src =  '../' + variation.preview_image
+      img.src = import.meta.env.BASE_URL + variation.preview_image
       img.alt = variation.display_name
       img.className = 'variation-preview-image'
       card.appendChild(img)
@@ -233,7 +233,7 @@ export class ModelVariationSwitcher extends EventTarget {
     this.show_loading_progress()
 
     this.loader.load(
-      '../' + model_file,
+      import.meta.env.BASE_URL + model_file,
       (gltf) => {
         this.hide_loading_progress()
         this.hide_dialog()
