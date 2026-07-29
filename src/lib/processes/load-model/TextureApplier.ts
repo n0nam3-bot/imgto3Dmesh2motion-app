@@ -29,8 +29,10 @@ export class TextureApplier {
    * as the texture map on every mesh.
    */
   public async apply_texture (glb_url: string, image_file: File): Promise<string> {
+    this.on_progress('DEBUG: starting apply_texture')
     this.on_progress('Checking model UV coordinates…')
     const uv_ready_url = await this.uv_ensurer.ensure_uvs(glb_url)
+    this.on_progress('DEBUG: UV check done')
 
     this.on_progress('Loading model…')
     const gltf = await this.gltf_loader.loadAsync(uv_ready_url)
@@ -42,6 +44,7 @@ export class TextureApplier {
         meshes.push(child)
       }
     })
+    this.on_progress(`DEBUG: model loaded, ${meshes.length} mesh(es) found`)
 
     if (meshes.length === 0) {
       throw new Error('No mesh found in this model.')
@@ -49,39 +52,52 @@ export class TextureApplier {
 
     this.on_progress('Loading image…')
     const image_object_url = URL.createObjectURL(image_file)
-    let texture: THREE.Texture
-    try {
-      texture = await new THREE.TextureLoader().loadAsync(image_object_url)
-    } finally {
-      URL.revokeObjectURL(image_object_url)
-    }
+    const texture = await new THREE.TextureLoader().loadAsync(image_object_url)
+    // NOTE: intentionally NOT revoking image_object_url here - it stays
+    // alive until this whole method returns, in case the exporter needs
+    // to re-read the image data during embedding
+
+    const image_element = texture.image as HTMLImageElement | undefined
+    this.on_progress(
+      `DEBUG: image loaded, dimensions=${image_element?.naturalWidth ?? '?'}x${image_element?.naturalHeight ?? '?'}, ` +
+      `complete=${image_element?.complete ?? '?'}`
+    )
+
     texture.colorSpace = THREE.SRGBColorSpace
-    texture.flipY = false // matches the UV convention used elsewhere in this app (xatlas-generated and glTF-loaded UVs)
     texture.needsUpdate = true
 
     this.on_progress(`Applying texture to ${meshes.length} mesh(es)…`)
     for (const mesh of meshes) {
+      const has_uv = mesh.geometry.attributes.uv !== undefined
+      this.on_progress(`DEBUG: mesh "${mesh.name || '(unnamed)'}" has_uv=${has_uv}`)
       const new_material = new THREE.MeshStandardMaterial({ map: texture })
       mesh.material = new_material
     }
 
     this.on_progress('Exporting textured model…')
-    const exported_buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
-      this.gltf_exporter.parse(
-        scene,
-        (result) => {
-          if (result instanceof ArrayBuffer) {
-            resolve(result)
-          } else {
-            reject(new Error('Textured export did not return binary GLB data'))
-          }
-        },
-        (error: unknown) => {
-          reject(error instanceof Error ? error : new Error(String(error)))
-        },
-        { binary: true, onlyVisible: false, embedImages: true }
-      )
-    })
+    let exported_buffer: ArrayBuffer
+    try {
+      exported_buffer = await new Promise<ArrayBuffer>((resolve, reject) => {
+        this.gltf_exporter.parse(
+          scene,
+          (result) => {
+            if (result instanceof ArrayBuffer) {
+              resolve(result)
+            } else {
+              reject(new Error('Textured export did not return binary GLB data'))
+            }
+          },
+          (error: unknown) => {
+            reject(error instanceof Error ? error : new Error(String(error)))
+          },
+          { binary: true, onlyVisible: false, embedImages: true }
+        )
+      })
+    } finally {
+      URL.revokeObjectURL(image_object_url)
+    }
+
+    this.on_progress(`DEBUG: export complete, ${exported_buffer.byteLength} bytes`)
 
     return URL.createObjectURL(new Blob([exported_buffer], { type: 'model/gltf-binary' }))
   }
