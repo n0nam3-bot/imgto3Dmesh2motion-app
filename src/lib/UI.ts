@@ -20,6 +20,15 @@ export class UI {
   dom_generate_from_image_download: HTMLAnchorElement | null = null
   dom_generate_from_image_continue_button: HTMLButtonElement | null = null
 
+  dom_apply_texture_model_input: HTMLInputElement | null = null
+  dom_apply_texture_model_filename: HTMLElement | null = null
+  dom_apply_texture_image_input: HTMLInputElement | null = null
+  dom_apply_texture_image_filename: HTMLElement | null = null
+  dom_apply_texture_image_preview: HTMLImageElement | null = null
+  dom_apply_texture_button: HTMLButtonElement | null = null
+  dom_apply_texture_status: HTMLElement | null = null
+  dom_apply_texture_download: HTMLAnchorElement | null = null
+
   // toggle for showing/hiding skeleton in the 3D view
   dom_show_skeleton_container: HTMLElement | null = null
   dom_show_skeleton_checkbox: HTMLInputElement | null = null
@@ -159,6 +168,15 @@ export class UI {
     this.dom_generate_from_image_actions = document.querySelector('#generate-from-image-actions')
     this.dom_generate_from_image_download = document.querySelector('#generate-from-image-download')
     this.dom_generate_from_image_continue_button = document.querySelector('#generate-from-image-continue-button')
+
+    this.dom_apply_texture_model_input = document.querySelector('#apply-texture-model-input')
+    this.dom_apply_texture_model_filename = document.querySelector('#apply-texture-model-filename')
+    this.dom_apply_texture_image_input = document.querySelector('#apply-texture-image-input')
+    this.dom_apply_texture_image_filename = document.querySelector('#apply-texture-image-filename')
+    this.dom_apply_texture_image_preview = document.querySelector('#apply-texture-image-preview')
+    this.dom_apply_texture_button = document.querySelector('#apply-texture-button')
+    this.dom_apply_texture_status = document.querySelector('#apply-texture-status')
+    this.dom_apply_texture_download = document.querySelector('#apply-texture-download')
 
     // UI controls with load skeleton step
     this.dom_rotate_model_x_button = document.querySelector('#rotate-model-x-button')
