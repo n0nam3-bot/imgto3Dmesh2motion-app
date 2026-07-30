@@ -29,6 +29,17 @@ export class UI {
   dom_apply_texture_status: HTMLElement | null = null
   dom_apply_texture_download: HTMLAnchorElement | null = null
 
+  dom_ai_texture_model_input: HTMLInputElement | null = null
+  dom_ai_texture_model_filename: HTMLElement | null = null
+  dom_ai_texture_image_input: HTMLInputElement | null = null
+  dom_ai_texture_image_filename: HTMLElement | null = null
+  dom_ai_texture_image_preview: HTMLImageElement | null = null
+  dom_ai_texture_prompt: HTMLInputElement | null = null
+  dom_ai_texture_hf_token: HTMLInputElement | null = null
+  dom_ai_texture_button: HTMLButtonElement | null = null
+  dom_ai_texture_status: HTMLElement | null = null
+  dom_ai_texture_download: HTMLAnchorElement | null = null
+
   // toggle for showing/hiding skeleton in the 3D view
   dom_show_skeleton_container: HTMLElement | null = null
   dom_show_skeleton_checkbox: HTMLInputElement | null = null
@@ -177,6 +188,17 @@ export class UI {
     this.dom_apply_texture_button = document.querySelector('#apply-texture-button')
     this.dom_apply_texture_status = document.querySelector('#apply-texture-status')
     this.dom_apply_texture_download = document.querySelector('#apply-texture-download')
+
+    this.dom_ai_texture_model_input = document.querySelector('#ai-texture-model-input')
+    this.dom_ai_texture_model_filename = document.querySelector('#ai-texture-model-filename')
+    this.dom_ai_texture_image_input = document.querySelector('#ai-texture-image-input')
+    this.dom_ai_texture_image_filename = document.querySelector('#ai-texture-image-filename')
+    this.dom_ai_texture_image_preview = document.querySelector('#ai-texture-image-preview')
+    this.dom_ai_texture_prompt = document.querySelector('#ai-texture-prompt')
+    this.dom_ai_texture_hf_token = document.querySelector('#ai-texture-hf-token')
+    this.dom_ai_texture_button = document.querySelector('#ai-texture-button')
+    this.dom_ai_texture_status = document.querySelector('#ai-texture-status')
+    this.dom_ai_texture_download = document.querySelector('#ai-texture-download')
 
     // UI controls with load skeleton step
     this.dom_rotate_model_x_button = document.querySelector('#rotate-model-x-button')
