@@ -193,6 +193,58 @@
             </a>
           </div>
 
+          <div style="text-align: center; font-size: 1.5rem">or</div>
+
+          <div class="alternate-background-section">
+            <p style="margin: 0">AI texture (MV-Adapter)</p>
+            <p style="margin: 0.25rem 0 0.5rem; font-size: 0.7rem; opacity: 0.6;">
+              Real AI-generated all-around texture (front, back, sides)
+              from a mesh and a reference image - different technology
+              from "Apply texture from image" above, which just wraps the
+              picture on directly. Free, but slower (1-3min per step, two
+              steps) and can fail on busy queue days.
+            </p>
+
+            <label for="ai-texture-model-input" class="button">
+              <span class="button-icon-group">
+                <img src="images/icons/upload.svg" alt="Choose model" width="16" height="16" />
+                <span>Choose Model (.glb)</span>
+              </span>
+            </label>
+            <input id="ai-texture-model-input" type="file" accept=".glb" />
+            <p id="ai-texture-model-filename" style="margin: 0.25rem 0 0; font-size: 0.85rem; opacity: 0.8;">No model chosen</p>
+
+            <label for="ai-texture-image-input" class="button">
+              <span class="button-icon-group">
+                <img src="images/icons/upload.svg" alt="Choose image" width="16" height="16" />
+                <span>Choose Reference Image</span>
+              </span>
+            </label>
+            <input id="ai-texture-image-input" type="file" accept="image/png, image/jpeg, image/webp" />
+            <p id="ai-texture-image-filename" style="margin: 0.25rem 0 0; font-size: 0.85rem; opacity: 0.8;">No image chosen</p>
+            <img id="ai-texture-image-preview" alt="Reference preview" style="display: none; max-width: 100%; max-height: 160px; margin-top: 0.4rem; border-radius: 4px; object-fit: contain; align-self: flex-start;" />
+
+            <label for="ai-texture-prompt" style="font-size: 0.8rem; opacity: 0.8; margin-top: 0.5rem;">Description (optional)</label>
+            <input id="ai-texture-prompt" type="text" placeholder="e.g. green orc warrior, leather armor" style="width: 100%; box-sizing: border-box;" />
+
+            <details style="margin: 0.5rem 0 0;">
+              <summary style="font-size: 0.8rem; cursor: pointer; opacity: 0.8;">Optional: Hugging Face token (more free generations)</summary>
+              <input
+                id="ai-texture-hf-token"
+                type="password"
+                placeholder="hf_..."
+                autocomplete="off"
+                style="width: 100%; margin-top: 0.35rem; box-sizing: border-box;"
+              />
+            </details>
+
+            <button id="ai-texture-button">Generate AI Texture</button>
+            <p id="ai-texture-status" style="margin: 0.25rem 0 0; font-size: 0.85rem; opacity: 0.8; white-space: pre-line;"></p>
+            <a id="ai-texture-download" class="button" download="ai-textured-model.glb" style="display: none; text-align: center; text-decoration: none; margin-top: 0.5rem;">
+              Download AI Textured Model
+            </a>
+          </div>
+
           <div class="styled-checkbox">
             <input
               type="checkbox"
