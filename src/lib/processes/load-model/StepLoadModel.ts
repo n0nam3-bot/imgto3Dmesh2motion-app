@@ -15,6 +15,7 @@ import { ImageTo3DGenerator } from './ImageTo3DGenerator.ts'
 import { MeshFaceReducer } from './MeshFaceReducer.ts'
 import { UvEnsurer } from './UvEnsurer.ts'
 import { TextureApplier } from './TextureApplier.ts'
+import { MvAdapterTextureGenerator } from './MvAdapterTextureGenerator.ts'
 
 // Note: EventTarget is a built-ininterface and do not need to import it
 export class StepLoadModel extends EventTarget {
@@ -318,6 +319,7 @@ export class StepLoadModel extends EventTarget {
 
     this.setup_generated_model_actions()
     this.setup_apply_texture_section()
+    this.setup_ai_texture_section()
 
     if (this.ui.dom_load_model_debug_checkbox !== null) {
       this.ui.dom_load_model_debug_checkbox.addEventListener('change', (event: Event) => {
@@ -406,6 +408,105 @@ export class StepLoadModel extends EventTarget {
     if (this.ui.dom_generate_from_image_download !== null) {
       this.ui.dom_generate_from_image_download.href = glb_url
     }
+  }
+
+  private setup_ai_texture_section (): void {
+    let chosen_model_file: File | undefined
+    let chosen_image_file: File | undefined
+
+    this.ui.dom_ai_texture_model_input?.addEventListener('change', () => {
+      chosen_model_file = this.ui.dom_ai_texture_model_input?.files?.[0]
+      if (this.ui.dom_ai_texture_model_filename !== null) {
+        this.ui.dom_ai_texture_model_filename.textContent = chosen_model_file !== undefined
+          ? chosen_model_file.name
+          : 'No model chosen'
+      }
+    })
+
+    this.ui.dom_ai_texture_image_input?.addEventListener('change', () => {
+      chosen_image_file = this.ui.dom_ai_texture_image_input?.files?.[0]
+      if (this.ui.dom_ai_texture_image_filename !== null) {
+        this.ui.dom_ai_texture_image_filename.textContent = chosen_image_file !== undefined
+          ? chosen_image_file.name
+          : 'No image chosen'
+      }
+
+      const preview_element = this.ui.dom_ai_texture_image_preview
+      if (preview_element !== null) {
+        if (preview_element.src.startsWith('blob:')) {
+          URL.revokeObjectURL(preview_element.src)
+        }
+        if (chosen_image_file !== undefined) {
+          preview_element.src = URL.createObjectURL(chosen_image_file)
+          preview_element.style.display = 'block'
+        } else {
+          preview_element.removeAttribute('src')
+          preview_element.style.display = 'none'
+        }
+      }
+    })
+
+    this.ui.dom_ai_texture_button?.addEventListener('click', () => {
+      const generate_button = this.ui.dom_ai_texture_button as HTMLButtonElement
+      const status_element = this.ui.dom_ai_texture_status
+      const set_status = (message: string): void => {
+        if (status_element === null) {
+          return
+        }
+        const existing = status_element.textContent ?? ''
+        status_element.textContent = existing.length > 0 ? `${existing}\n${message}` : message
+      }
+      if (status_element !== null) {
+        status_element.textContent = ''
+      }
+
+      if (chosen_image_file === undefined) {
+        new ModalDialog('No image selected', 'Choose a reference image first.').show()
+        return
+      }
+
+      const use_generated_fallback = chosen_model_file === undefined && this.generated_model_url !== null
+      if (chosen_model_file === undefined && this.generated_model_url === null) {
+        new ModalDialog('No model selected', 'Choose a .glb file first, or generate a model above.').show()
+        return
+      }
+
+      const resolve_model_file = async (): Promise<File> => {
+        if (!use_generated_fallback) {
+          return chosen_model_file as File
+        }
+        // convert the currently-generated blob URL into a File for upload
+        const response = await fetch(this.generated_model_url as string)
+        const blob = await response.blob()
+        return new File([blob], 'generated-model.glb', { type: 'model/gltf-binary' })
+      }
+
+      generate_button.disabled = true
+      set_status('Starting…')
+
+      const generator = new MvAdapterTextureGenerator()
+      generator.set_progress_callback(set_status)
+      generator.set_hf_token(this.ui.dom_ai_texture_hf_token?.value)
+      const prompt = this.ui.dom_ai_texture_prompt?.value ?? ''
+
+      resolve_model_file()
+        .then(async (model_file) => await generator.generate_texture(model_file, chosen_image_file as File, prompt))
+        .then((textured_glb_url: string) => {
+          set_status('AI textured model ready.')
+          if (this.ui.dom_ai_texture_download !== null) {
+            this.ui.dom_ai_texture_download.href = textured_glb_url
+            this.ui.dom_ai_texture_download.style.display = 'inline-block'
+          }
+          generate_button.disabled = false
+        })
+        .catch((error: unknown) => {
+          console.error('AI texture generation failed', error)
+          const message = error instanceof Error ? error.message : String(error)
+          set_status('')
+          new ModalDialog('AI texture generation failed', message).show()
+          generate_button.disabled = false
+        })
+    })
   }
 
   private setup_apply_texture_section (): void {
