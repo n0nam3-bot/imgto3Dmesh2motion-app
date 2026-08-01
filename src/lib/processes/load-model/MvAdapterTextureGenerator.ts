@@ -49,6 +49,23 @@ export class MvAdapterTextureGenerator {
     const client = await Client.connect(this.space_id, connect_options)
     this.on_progress('DEBUG: connected')
 
+    // The Space's own code creates a per-session working directory via a
+    // demo.load(start_session) handler - which normally fires when a
+    // browser loads the page, but never fires for API-only access like
+    // this. Without it, run_texturing's file save fails against a
+    // directory that was never created (this was the actual cause of the
+    // generic "An error occurred" - confirmed by reading the Space's real
+    // source, not guessed). Call it explicitly first.
+    try {
+      await this.with_timeout(client.predict('/start_session', []), 30_000, 'Timed out starting session after 30s.')
+      this.on_progress('DEBUG: session started')
+    } catch (error: unknown) {
+      // if this endpoint doesn't exist under this name, fall through and
+      // let the main pipeline attempt run anyway - better to try than to
+      // hard-fail on an assumption about an internal endpoint name
+      this.on_progress(`DEBUG: start_session call failed (continuing anyway): ${this.describe_unknown_error(error)}`)
+    }
+
     const seed = Math.floor(Math.random() * 2_000_000_000)
 
     this.on_progress('Generating synthesized views (step 1 of 2)… this can take 1-3min on the free queue')
@@ -152,7 +169,7 @@ export class MvAdapterTextureGenerator {
         : image_data
 
       if (typeof unwrapped === 'string') {
-        wrapped.push(handle_file(unwrapped))
+        wrapped.push([handle_file(unwrapped), null])
         continue
       }
 
@@ -160,7 +177,10 @@ export class MvAdapterTextureGenerator {
         const candidate = unwrapped as { url?: string, path?: string }
         const url = candidate.url ?? candidate.path
         if (typeof url === 'string') {
-          wrapped.push(handle_file(url))
+          // server does `mv_images = [item[0] for item in mv_images]` -
+          // it expects each entry as a [image, caption] pair, not a bare
+          // file reference
+          wrapped.push([handle_file(url), null])
         }
       }
     }
