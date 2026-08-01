@@ -1,4 +1,4 @@
-import { Client } from '@gradio/client'
+import { Client, handle_file } from '@gradio/client'
 
 /**
  * Generates real, plausible all-around texture for an existing GLB mesh
@@ -73,8 +73,16 @@ export class MvAdapterTextureGenerator {
     this.on_progress(`DEBUG: step 1 done, ${JSON.stringify(mvadapter_result.data).slice(0, 150)}`)
 
     // mvadapter_result.data is [mv_images_gallery, processed_image] per
-    // run_mvadapter()'s `outputs=[mv_result, image_prompt]` binding
-    const mv_images_gallery = mvadapter_result.data[0]
+    // run_mvadapter()'s `outputs=[mv_result, image_prompt]` binding.
+    // The gallery's image references point to files on the SPACE's own
+    // server - passing that structure straight back in doesn't work
+    // (confirmed: caused a FileNotFoundError, the server tried to look
+    // for those paths on the client side). Each reference needs
+    // re-wrapping with handle_file() so gradio_client knows to treat it
+    // as a remote file to reuse, not a new local upload.
+    const raw_gallery = mvadapter_result.data[0]
+    const mv_images_gallery = this.rewrap_gallery_as_file_handles(raw_gallery)
+    this.on_progress(`DEBUG: rewrapped ${mv_images_gallery.length} view image(s) for step 2`)
 
     this.on_progress('Baking texture onto the model (step 2 of 2)… this can take 1-3min on the free queue')
     let texturing_result: Awaited<ReturnType<typeof client.predict>>
@@ -116,6 +124,48 @@ export class MvAdapterTextureGenerator {
     const glb_blob = await glb_response.blob()
 
     return URL.createObjectURL(glb_blob)
+  }
+
+  /**
+   * Gradio Gallery outputs typically come back as an array of items,
+   * each either an {image: {path, url, ...}, caption} dict or a bare
+   * {path, url, ...} dict. Extracts each image's URL and re-wraps it
+   * with handle_file() so it can be fed into a subsequent call as a
+   * reference to an existing remote file, rather than gradio_client
+   * trying to treat the raw dict as a new local upload (which is what
+   * produced the FileNotFoundError).
+   */
+  private rewrap_gallery_as_file_handles (gallery: unknown): unknown[] {
+    if (!Array.isArray(gallery)) {
+      return []
+    }
+
+    const wrapped: unknown[] = []
+
+    for (const item of gallery) {
+      // gallery entries are sometimes [image_data, caption] tuples,
+      // sometimes bare image_data dicts
+      const image_data = Array.isArray(item) ? item[0] : item
+
+      const unwrapped = (image_data !== null && typeof image_data === 'object' && 'image' in (image_data as object))
+        ? (image_data as { image: unknown }).image
+        : image_data
+
+      if (typeof unwrapped === 'string') {
+        wrapped.push(handle_file(unwrapped))
+        continue
+      }
+
+      if (unwrapped !== null && typeof unwrapped === 'object') {
+        const candidate = unwrapped as { url?: string, path?: string }
+        const url = candidate.url ?? candidate.path
+        if (typeof url === 'string') {
+          wrapped.push(handle_file(url))
+        }
+      }
+    }
+
+    return wrapped
   }
 
   private async with_timeout<T> (promise: Promise<T>, timeout_ms: number, timeout_message: string): Promise<T> {
