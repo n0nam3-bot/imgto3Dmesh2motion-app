@@ -15,16 +15,16 @@ import { Client, handle_file } from '@gradio/client'
  *   2. /run_texturing - bakes those 6 views onto the mesh's UVs, producing
  *      the final textured GLB (~90s GPU budget)
  * Both steps run on the free ZeroGPU queue, so total time can run from
- * under a minute to several minutes depending on queue load - same
- * queue/timeout/token considerations as the image-to-3D generator.
+ * under a minute to several minutes depending on queue load.
+ *
+ * The Space also has a demo.load(start_session) handler that creates a
+ * per-session working directory - normally triggered by a browser
+ * loading the page, but never fired for API-only access, so it's called
+ * explicitly here first (confirmed necessary: run_texturing writes into
+ * that directory and fails without it existing).
  *
  * NOTE: this is a research demo, not a stable public API - the Space
- * owner can change the code at any time. The step-2 "feed the gallery of
- * generated images from step 1 directly into step 2's mv_images
- * parameter" call is the part most likely to need adjustment if this
- * breaks, since it depends on gradio_client preserving the exact output
- * shape of a Gallery component when passed back in as input - flagged
- * in run_texturing() below.
+ * owner can change the code at any time.
  */
 export class MvAdapterTextureGenerator {
   private readonly space_id: string = 'VAST-AI/MV-Adapter-Img2Texture'
@@ -49,20 +49,10 @@ export class MvAdapterTextureGenerator {
     const client = await Client.connect(this.space_id, connect_options)
     this.on_progress('DEBUG: connected')
 
-    // The Space's own code creates a per-session working directory via a
-    // demo.load(start_session) handler - which normally fires when a
-    // browser loads the page, but never fires for API-only access like
-    // this. Without it, run_texturing's file save fails against a
-    // directory that was never created (this was the actual cause of the
-    // generic "An error occurred" - confirmed by reading the Space's real
-    // source, not guessed). Call it explicitly first.
     try {
       await this.with_timeout(client.predict('/start_session', []), 30_000, 'Timed out starting session after 30s.')
       this.on_progress('DEBUG: session started')
     } catch (error: unknown) {
-      // if this endpoint doesn't exist under this name, fall through and
-      // let the main pipeline attempt run anyway - better to try than to
-      // hard-fail on an assumption about an internal endpoint name
       this.on_progress(`DEBUG: start_session call failed (continuing anyway): ${this.describe_unknown_error(error)}`)
     }
 
@@ -89,14 +79,6 @@ export class MvAdapterTextureGenerator {
     }
     this.on_progress(`DEBUG: step 1 done, ${JSON.stringify(mvadapter_result.data).slice(0, 150)}`)
 
-    // mvadapter_result.data is [mv_images_gallery, processed_image] per
-    // run_mvadapter()'s `outputs=[mv_result, image_prompt]` binding.
-    // The gallery's image references point to files on the SPACE's own
-    // server - passing that structure straight back in doesn't work
-    // (confirmed: caused a FileNotFoundError, the server tried to look
-    // for those paths on the client side). Each reference needs
-    // re-wrapping with handle_file() so gradio_client knows to treat it
-    // as a remote file to reuse, not a new local upload.
     const raw_gallery = mvadapter_result.data[0]
     const mv_images_gallery = this.rewrap_gallery_as_file_handles(raw_gallery)
     this.on_progress(`DEBUG: rewrapped ${mv_images_gallery.length} view image(s) for step 2`)
@@ -107,9 +89,14 @@ export class MvAdapterTextureGenerator {
       texturing_result = await this.with_timeout(
         client.predict('/run_texturing', [
           mesh_file, // input_mesh - same original mesh file again
-          mv_images_gallery, // mv_result - fed straight back from step 1's output (see class comment)
+          mv_images_gallery, // mv_result - fed back from step 1's output, rewrapped
           true, // uv_unwarp (Space default)
-          false, // preprocess_mesh (Space default)
+          // Space's own mesh-cleanup step, meant for exactly this kind of
+          // input (AI-generated geometry can be non-manifold/messy) -
+          // was previously off (matching the UI default), now on since
+          // that's a well-justified thing to try for our specific
+          // use case rather than the Space's general-purpose default
+          true, // preprocess_mesh
           4096 // uv_size (Space default)
         ]),
         180_000,
@@ -143,15 +130,6 @@ export class MvAdapterTextureGenerator {
     return URL.createObjectURL(glb_blob)
   }
 
-  /**
-   * Gradio Gallery outputs typically come back as an array of items,
-   * each either an {image: {path, url, ...}, caption} dict or a bare
-   * {path, url, ...} dict. Extracts each image's URL and re-wraps it
-   * with handle_file() so it can be fed into a subsequent call as a
-   * reference to an existing remote file, rather than gradio_client
-   * trying to treat the raw dict as a new local upload (which is what
-   * produced the FileNotFoundError).
-   */
   private rewrap_gallery_as_file_handles (gallery: unknown): unknown[] {
     if (!Array.isArray(gallery)) {
       return []
@@ -160,8 +138,6 @@ export class MvAdapterTextureGenerator {
     const wrapped: unknown[] = []
 
     for (const item of gallery) {
-      // gallery entries are sometimes [image_data, caption] tuples,
-      // sometimes bare image_data dicts
       const image_data = Array.isArray(item) ? item[0] : item
 
       const unwrapped = (image_data !== null && typeof image_data === 'object' && 'image' in (image_data as object))
@@ -177,9 +153,6 @@ export class MvAdapterTextureGenerator {
         const candidate = unwrapped as { url?: string, path?: string }
         const url = candidate.url ?? candidate.path
         if (typeof url === 'string') {
-          // server does `mv_images = [item[0] for item in mv_images]` -
-          // it expects each entry as a [image, caption] pair, not a bare
-          // file reference
           wrapped.push([handle_file(url), null])
         }
       }
@@ -203,6 +176,13 @@ export class MvAdapterTextureGenerator {
     }
   }
 
+  /**
+   * Digs through every plausible location for a human-readable message,
+   * since "An error occurred" (Gradio's sanitized default for unhandled
+   * server exceptions) has shown up with no further detail in the
+   * top-level fields checked before - this also dumps the FULL raw
+   * object as a last resort so nothing is silently lost.
+   */
   private describe_unknown_error (error: unknown): string {
     if (error instanceof Error) {
       return error.message
@@ -211,17 +191,29 @@ export class MvAdapterTextureGenerator {
       return error
     }
     if (error !== null && typeof error === 'object') {
-      const candidate = error as { message?: string, detail?: string, error?: string, stage?: string }
-      const readable = candidate.message ?? candidate.detail ?? candidate.error
-      if (typeof readable === 'string') {
-        const context = candidate.stage !== undefined ? ` (stage: ${candidate.stage})` : ''
-        return `${readable}${context}`
-      }
+      const candidate = error as Record<string, unknown>
+      const direct_message = candidate.message ?? candidate.detail ?? candidate.error
+      const nested_message = (candidate.data !== null && typeof candidate.data === 'object')
+        ? (candidate.data as Record<string, unknown>).message ?? (candidate.data as Record<string, unknown>).error
+        : undefined
+      const body_message = (candidate.body !== null && typeof candidate.body === 'object')
+        ? (candidate.body as Record<string, unknown>).message ?? (candidate.body as Record<string, unknown>).error
+        : undefined
+
+      const readable = direct_message ?? nested_message ?? body_message
+      const stage = typeof candidate.stage === 'string' ? ` (stage: ${candidate.stage})` : ''
+
+      let full_dump = ''
       try {
-        return `Unrecognized error object: ${JSON.stringify(error, null, 2).slice(0, 500)}`
+        full_dump = ` | full error object: ${JSON.stringify(error, Object.getOwnPropertyNames(error)).slice(0, 800)}`
       } catch {
-        return 'Unrecognized error object that could not be serialized.'
+        full_dump = ' | (error object could not be serialized)'
       }
+
+      if (typeof readable === 'string') {
+        return `${readable}${stage}${full_dump}`
+      }
+      return `Unrecognized error object${stage}${full_dump}`
     }
     return String(error)
   }
