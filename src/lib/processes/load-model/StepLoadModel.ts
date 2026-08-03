@@ -16,6 +16,7 @@ import { MeshFaceReducer } from './MeshFaceReducer.ts'
 import { UvEnsurer } from './UvEnsurer.ts'
 import { TextureApplier } from './TextureApplier.ts'
 import { MvAdapterTextureGenerator } from './MvAdapterTextureGenerator.ts'
+import { MultiViewTextureBaker } from './MultiViewTextureBaker.ts'
 
 // Note: EventTarget is a built-ininterface and do not need to import it
 export class StepLoadModel extends EventTarget {
@@ -490,7 +491,14 @@ export class StepLoadModel extends EventTarget {
       const prompt = this.ui.dom_ai_texture_prompt?.value ?? ''
 
       resolve_model_file()
-        .then(async (model_file) => await generator.generate_texture(model_file, chosen_image_file as File, prompt))
+        .then(async (model_file) => {
+          const view_urls = await generator.generate_views_only(model_file, chosen_image_file as File, prompt)
+          set_status(`Got ${view_urls.length} view(s), baking locally…`)
+          const baker = new MultiViewTextureBaker()
+          baker.set_progress_callback(set_status)
+          const model_url = await resolve_model_file().then((f) => URL.createObjectURL(f))
+          return await baker.bake(model_url, view_urls)
+        })
         .then((textured_glb_url: string) => {
           set_status('AI textured model ready.')
           if (this.ui.dom_ai_texture_download !== null) {
