@@ -38,6 +38,7 @@ export class UI {
   dom_ai_texture_hf_token: HTMLInputElement | null = null
   dom_ai_texture_button: HTMLButtonElement | null = null
   dom_ai_texture_status: HTMLElement | null = null
+  dom_ai_texture_view_previews: HTMLElement | null = null
   dom_ai_texture_download: HTMLAnchorElement | null = null
 
   // toggle for showing/hiding skeleton in the 3D view
@@ -198,6 +199,7 @@ export class UI {
     this.dom_ai_texture_hf_token = document.querySelector('#ai-texture-hf-token')
     this.dom_ai_texture_button = document.querySelector('#ai-texture-button')
     this.dom_ai_texture_status = document.querySelector('#ai-texture-status')
+    this.dom_ai_texture_view_previews = document.querySelector('#ai-texture-view-previews')
     this.dom_ai_texture_download = document.querySelector('#ai-texture-download')
 
     // UI controls with load skeleton step
