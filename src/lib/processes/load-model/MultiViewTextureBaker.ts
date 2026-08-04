@@ -227,7 +227,7 @@ export class MultiViewTextureBaker {
     for (let i = 0; i < view_angles.length; i++) {
       const { view_matrix, projection_matrix, world_position } = this.compute_view_matrices(view_angles[i], bounds)
 
-      const material = new THREE.RawShaderMaterial({
+      const material = new THREE.ShaderMaterial({
         glslVersion: THREE.GLSL3,
         vertexShader: UNFOLD_VERTEX_SHADER,
         fragmentShader: UNFOLD_FRAGMENT_SHADER,
