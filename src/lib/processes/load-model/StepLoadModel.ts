@@ -494,6 +494,15 @@ export class StepLoadModel extends EventTarget {
         .then(async (model_file) => {
           const view_urls = await generator.generate_views_only(model_file, chosen_image_file as File, prompt)
           set_status(`Got ${view_urls.length} view(s), baking locally…`)
+          if (this.ui.dom_ai_texture_view_previews !== null) {
+            this.ui.dom_ai_texture_view_previews.innerHTML = ''
+            for (const url of view_urls) {
+              const img = document.createElement('img')
+              img.src = url
+              img.style.cssText = 'width: 64px; height: 64px; object-fit: cover; border-radius: 4px;'
+              this.ui.dom_ai_texture_view_previews.appendChild(img)
+            }
+          }
           const baker = new MultiViewTextureBaker()
           baker.set_progress_callback(set_status)
           const model_url = await resolve_model_file().then((f) => URL.createObjectURL(f))
