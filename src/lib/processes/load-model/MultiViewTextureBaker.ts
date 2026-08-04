@@ -206,6 +206,18 @@ export class MultiViewTextureBaker {
 
     const bake_scene = new THREE.Scene()
     const bake_mesh = new THREE.Mesh(mesh.geometry)
+    // CRITICAL: without this, bake_mesh renders at identity transform
+    // (origin, no rotation/scale) while the cameras below are positioned
+    // based on the ORIGINAL mesh's world-space bounds - every vertex
+    // would land nowhere near where any camera is looking, and every
+    // fragment would fail the screen-bounds/facing test, producing
+    // exactly the "entirely flat clear color, zero texture" result this
+    // fixes (confirmed, not hypothetical)
+    mesh.updateWorldMatrix(true, false)
+    bake_mesh.matrix.copy(mesh.matrixWorld)
+    bake_mesh.matrixWorld.copy(mesh.matrixWorld)
+    bake_mesh.matrixAutoUpdate = false
+    bake_mesh.matrixWorldAutoUpdate = false
     bake_scene.add(bake_mesh)
 
     this.renderer.setRenderTarget(render_target)
