@@ -506,7 +506,7 @@ export class StepLoadModel extends EventTarget {
           const baker = new MultiViewTextureBaker()
           baker.set_progress_callback(set_status)
           const model_url = await resolve_model_file().then((f) => URL.createObjectURL(f))
-          return await baker.bake(model_url, view_urls)
+          return await baker.bake(model_url, view_urls, undefined, 1024, 1)
         })
         .then((textured_glb_url: string) => {
           set_status('AI textured model ready.')
