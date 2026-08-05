@@ -120,12 +120,18 @@ export class MultiViewTextureBaker {
     glb_url: string,
     view_image_urls: string[],
     view_angles: ViewAngle[] = DEFAULT_VIEW_ANGLES,
-    output_resolution: number = 1024
+    output_resolution: number = 1024,
+    debug_single_view_index?: number
   ): Promise<string> {
     if (view_image_urls.length !== view_angles.length) {
       throw new Error(
         `Got ${view_image_urls.length} view image(s) but ${view_angles.length} view angle(s) - these must match.`
       )
+    }
+    if (debug_single_view_index !== undefined) {
+      this.on_progress(`DEBUG: isolating view index ${debug_single_view_index} only`)
+      view_image_urls = [view_image_urls[debug_single_view_index]]
+      view_angles = [view_angles[debug_single_view_index]]
     }
 
     this.on_progress('Loading mesh…')
