@@ -82,6 +82,7 @@ void main() {
 const UNFOLD_FRAGMENT_SHADER = `
 precision highp float;
 uniform sampler2D viewImage;
+uniform bool debugVisualizeUV;
 in vec2 vScreenUV;
 in float vFacing;
 out vec4 outColor;
@@ -90,7 +91,15 @@ void main() {
   if (vFacing <= 0.05) discard;
   if (vScreenUV.x < 0.0 || vScreenUV.x > 1.0 || vScreenUV.y < 0.0 || vScreenUV.y > 1.0) discard;
 
-  outColor = texture(viewImage, vScreenUV);
+  if (debugVisualizeUV) {
+    // shows the raw computed screen-space UV as color instead of
+    // sampling the image - a smooth gradient here means the projection
+    // math is correct and the bug is in texture sampling/readback;
+    // chaotic/noisy output here means the projection math itself is broken
+    outColor = vec4(vScreenUV, 0.0, 1.0);
+  } else {
+    outColor = texture(viewImage, vScreenUV);
+  }
   // standard (not inverted) depth test below means SMALLER depth wins -
   // so encode higher facing quality as smaller depth
   gl_FragDepth = 1.0 - clamp(vFacing, 0.0, 1.0);
@@ -121,7 +130,8 @@ export class MultiViewTextureBaker {
     view_image_urls: string[],
     view_angles: ViewAngle[] = DEFAULT_VIEW_ANGLES,
     output_resolution: number = 1024,
-    debug_single_view_index?: number
+    debug_single_view_index?: number,
+    debug_visualize_uv: boolean = false
   ): Promise<string> {
     if (view_image_urls.length !== view_angles.length) {
       throw new Error(
@@ -155,7 +165,19 @@ export class MultiViewTextureBaker {
     this.on_progress(`Loading ${view_image_urls.length} view image(s)…`)
     const view_textures = await Promise.all(
       view_image_urls.map(async (url) => {
-        const texture = await this.texture_loader.loadAsync(url)
+        // download to a local blob first, rather than loading the remote
+        // URL directly into a texture - a cross-origin texture without
+        // proper CORS headers on the remote server would still DISPLAY
+        // fine, but reading its rendered pixels back out (exactly what
+        // baking needs) can silently return corrupted data instead of a
+        // clear error. A local blob: URL can never be cross-origin-tainted.
+        const image_response = await fetch(url)
+        if (!image_response.ok) {
+          throw new Error(`Failed to download view image (HTTP ${image_response.status}): ${url}`)
+        }
+        const image_blob = await image_response.blob()
+        const local_url = URL.createObjectURL(image_blob)
+        const texture = await this.texture_loader.loadAsync(local_url)
         texture.colorSpace = THREE.SRGBColorSpace
         texture.needsUpdate = true
         return texture
@@ -166,7 +188,7 @@ export class MultiViewTextureBaker {
 
     this.on_progress(`Baking ${meshes.length} mesh(es) from ${view_angles.length} angles…`)
     for (const mesh of meshes) {
-      const baked_texture = this.bake_mesh(mesh, view_textures, view_angles, combined_bounds, output_resolution)
+      const baked_texture = this.bake_mesh(mesh, view_textures, view_angles, combined_bounds, output_resolution, debug_visualize_uv)
       const new_material = new THREE.MeshStandardMaterial({ map: baked_texture })
       mesh.material = new_material
     }
@@ -198,7 +220,8 @@ export class MultiViewTextureBaker {
     view_textures: THREE.Texture[],
     view_angles: ViewAngle[],
     bounds: THREE.Box3,
-    resolution: number
+    resolution: number,
+    debug_visualize_uv: boolean = false
   ): THREE.CanvasTexture {
     const render_target = new THREE.WebGLRenderTarget(resolution, resolution, {
       depthBuffer: true,
@@ -241,7 +264,8 @@ export class MultiViewTextureBaker {
           cameraViewMatrix: { value: view_matrix },
           cameraProjectionMatrix: { value: projection_matrix },
           cameraWorldPosition: { value: world_position },
-          viewImage: { value: view_textures[i] }
+          viewImage: { value: view_textures[i] },
+          debugVisualizeUV: { value: debug_visualize_uv }
         },
         side: THREE.DoubleSide,
         depthTest: true,
