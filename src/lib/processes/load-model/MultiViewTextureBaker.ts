@@ -24,18 +24,42 @@ import { GLTFExporter } from 'three/examples/jsm/exporters/GLTFExporter.js'
  * there. A depth-buffer trick (writing 1 - facing_quality as depth, with
  * standard depth testing) means that across all 6 passes rendered into
  * the same target, each UV texel keeps only the sample from whichever
- * camera saw that surface most directly - a standard technique for
- * combining several viewpoints without cross-channel color artifacts.
+ * camera saw that surface most directly.
  *
- * MAIN CALIBRATION RISK (likely needs iteration): the exact camera
- * distance/FOV/elevation used to angles 0-5 aren't published by the
- * Space - only the azimuth angles were recoverable from their source
+ * CONFIRMED FIXES ALONG THE WAY (verified against real exported output,
+ * not guessed):
+ *   1. The render copy of the mesh needs the ORIGINAL mesh's world
+ *      transform copied onto it - otherwise it renders at the origin
+ *      while cameras are positioned based on the real mesh location,
+ *      and every fragment fails (confirmed: produced solid clear-color
+ *      output, zero coverage).
+ *   2. Must use THREE.ShaderMaterial, not RawShaderMaterial - the shader
+ *      relies on Three.js's automatic position/uv/normal/modelMatrix
+ *      injections, which RawShaderMaterial does not provide (confirmed:
+ *      this also produced solid clear-color output - the shader almost
+ *      certainly never compiled, silently).
+ *   3. View images must be downloaded to a local blob before use as a
+ *      texture, not loaded directly from the remote (cross-origin) URL -
+ *      a texture without proper CORS headers can still display normally
+ *      but silently return corrupted data when read back via
+ *      readRenderTargetPixels (exactly what baking needs to do).
+ *   4. Not every part of the mesh is visible from any of the 6 views -
+ *      confirmed by extracting and inspecting the actual baked texture
+ *      from a real export: many small UV chart islands show correct,
+ *      recognizable image content, but large areas remain at the
+ *      uncovered clear color, causing a patchy/incomplete look on the
+ *      3D model. Fixed with a dilation/gap-fill pass (see
+ *      dilate_uncovered_pixels) that spreads real coverage into nearby
+ *      uncovered pixels, standard practice in texture baking pipelines.
+ *
+ * MAIN REMAINING CALIBRATION RISK: the exact camera distance/FOV/
+ * elevation used for the 6 views aren't published by the Space - only
+ * the azimuth angles were recoverable from their source
  * (camera_azimuth_deg=[x-90 for x in [0,90,180,270,180,180]] ->
  * [-90,0,90,180,90,90]). The repeated 90 for views 4-5 strongly suggests
  * those are elevation-varied (top/bottom) rather than distinct azimuths;
  * DEFAULT_VIEW_ANGLES below is a reasonable guess at that split, not a
- * confirmed value - if results look misaligned, this is the first thing
- * to adjust.
+ * confirmed value.
  */
 
 export interface ViewAngle {
@@ -98,7 +122,10 @@ void main() {
     // chaotic/noisy output here means the projection math itself is broken
     outColor = vec4(vScreenUV, 0.0, 1.0);
   } else {
-    outColor = texture(viewImage, vScreenUV);
+    // force alpha=1 on every real baked pixel - this is how coverage
+    // gets tracked (clear color below uses alpha=0) so the gap-fill
+    // pass afterward knows exactly which pixels were actually written
+    outColor = vec4(texture(viewImage, vScreenUV).rgb, 1.0);
   }
   // standard (not inverted) depth test below means SMALLER depth wins -
   // so encode higher facing quality as smaller depth
@@ -186,9 +213,11 @@ export class MultiViewTextureBaker {
 
     const combined_bounds = new THREE.Box3().setFromObject(scene)
 
-    this.on_progress(`Baking ${meshes.length} mesh(es) from ${view_angles.length} angles…`)
+    this.on_progress(`Baking ${meshes.length} mesh(es) from ${view_angles.length} angle(s)…`)
     for (const mesh of meshes) {
-      const baked_texture = this.bake_mesh(mesh, view_textures, view_angles, combined_bounds, output_resolution, debug_visualize_uv)
+      const baked_texture = this.bake_mesh(
+        mesh, view_textures, view_angles, combined_bounds, output_resolution, debug_visualize_uv
+      )
       const new_material = new THREE.MeshStandardMaterial({ map: baked_texture })
       mesh.material = new_material
     }
@@ -250,7 +279,7 @@ export class MultiViewTextureBaker {
     bake_scene.add(bake_mesh)
 
     this.renderer.setRenderTarget(render_target)
-    this.renderer.setClearColor(0x808080, 1)
+    this.renderer.setClearColor(0x808080, 0) // alpha=0 marks "not yet covered" for the gap-fill pass below
     this.renderer.clear(true, true, true)
 
     for (let i = 0; i < view_angles.length; i++) {
@@ -285,6 +314,18 @@ export class MultiViewTextureBaker {
     this.renderer.readRenderTargetPixels(render_target, 0, 0, resolution, resolution, pixel_buffer)
     render_target.dispose()
 
+    // WebGL render targets are bottom-up; canvas ImageData is top-down -
+    // flip while copying into a plain array we can dilate in place
+    const flipped = new Uint8ClampedArray(resolution * resolution * 4)
+    for (let y = 0; y < resolution; y++) {
+      const src_row = resolution - 1 - y
+      const src_start = src_row * resolution * 4
+      const dst_start = y * resolution * 4
+      flipped.set(pixel_buffer.subarray(src_start, src_start + resolution * 4), dst_start)
+    }
+
+    this.dilate_uncovered_pixels(flipped, resolution)
+
     const canvas = document.createElement('canvas')
     canvas.width = resolution
     canvas.height = resolution
@@ -292,15 +333,7 @@ export class MultiViewTextureBaker {
     if (context === null) {
       throw new Error('Could not get 2D canvas context to read back baked texture')
     }
-    const image_data = context.createImageData(resolution, resolution)
-
-    // WebGL render targets are bottom-up; canvas ImageData is top-down
-    for (let y = 0; y < resolution; y++) {
-      const src_row = resolution - 1 - y
-      const src_start = src_row * resolution * 4
-      const dst_start = y * resolution * 4
-      image_data.data.set(pixel_buffer.subarray(src_start, src_start + resolution * 4), dst_start)
-    }
+    const image_data = new ImageData(flipped, resolution, resolution)
     context.putImageData(image_data, 0, 0)
 
     const canvas_texture = new THREE.CanvasTexture(canvas)
@@ -308,6 +341,74 @@ export class MultiViewTextureBaker {
     canvas_texture.flipY = false
     canvas_texture.needsUpdate = true
     return canvas_texture
+  }
+
+  /**
+   * Standard texture-baking "dilation" pass: none of the 6 views can see
+   * 100% of a complex mesh's surface, so parts of the UV atlas are left
+   * uncovered (marked by alpha=0, set in the shader/clear color above).
+   * Each pass spreads every covered pixel's color one step into any
+   * directly-adjacent uncovered pixel, repeated enough times to close
+   * reasonably-sized gaps and chart-boundary seams. Whatever is still
+   * uncovered after all iterations gets a flat fallback fill instead of
+   * being left as the raw gray clear color.
+   */
+  private dilate_uncovered_pixels (pixels: Uint8ClampedArray, resolution: number, iterations: number = 24): void {
+    const get_index = (x: number, y: number): number => (y * resolution + x) * 4
+
+    for (let iteration = 0; iteration < iterations; iteration++) {
+      const source = pixels.slice()
+      let any_filled = false
+
+      for (let y = 0; y < resolution; y++) {
+        for (let x = 0; x < resolution; x++) {
+          const index = get_index(x, y)
+          if (source[index + 3] !== 0) {
+            continue // already covered, nothing to fill
+          }
+
+          let sum_r = 0; let sum_g = 0; let sum_b = 0; let count = 0
+          const neighbors = [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]
+          for (const [nx, ny] of neighbors) {
+            if (nx < 0 || nx >= resolution || ny < 0 || ny >= resolution) {
+              continue
+            }
+            const neighbor_index = get_index(nx, ny)
+            if (source[neighbor_index + 3] !== 0) {
+              sum_r += source[neighbor_index]
+              sum_g += source[neighbor_index + 1]
+              sum_b += source[neighbor_index + 2]
+              count++
+            }
+          }
+
+          if (count > 0) {
+            pixels[index] = sum_r / count
+            pixels[index + 1] = sum_g / count
+            pixels[index + 2] = sum_b / count
+            pixels[index + 3] = 255
+            any_filled = true
+          }
+        }
+      }
+
+      if (!any_filled) {
+        break // fully converged, no point continuing
+      }
+    }
+
+    // anything still uncovered after all iterations (isolated islands
+    // far from any real coverage) gets a flat mid-gray instead of
+    // staying at alpha=0, which would otherwise show as fully
+    // transparent/black in most viewers
+    for (let i = 0; i < pixels.length; i += 4) {
+      if (pixels[i + 3] === 0) {
+        pixels[i] = 128
+        pixels[i + 1] = 128
+        pixels[i + 2] = 128
+        pixels[i + 3] = 255
+      }
+    }
   }
 
   private compute_view_matrices (
